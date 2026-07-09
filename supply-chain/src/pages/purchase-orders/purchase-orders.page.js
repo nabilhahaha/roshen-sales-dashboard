@@ -101,10 +101,12 @@ function paint() {
 
 function renderActions() {
   const h = ED.header, box = qs('[data-el="actions"]', ROOT);
+  const isNew = ED.id == null;
   let btns = '';
   if (!ED.readonly) {
     btns += '<button class="sc-btn primary" data-act="save">💾 Save Draft</button>';
     btns += '<button class="sc-btn green" data-act="approve">✅ Approve Order</button>';
+    if (isNew) btns += '<button class="sc-btn" data-act="importxl">📥 Import from Excel</button>';
   } else if (h.status === ORDER_STATUS.APPROVED) {
     btns += ED.pi ? '<button class="sc-btn primary" data-act="openPI">🧾 Open PI Validation</button>'
                   : '<button class="sc-btn primary" data-act="import">📥 Import PI</button>';
@@ -221,6 +223,7 @@ function confirmApprove() {
 
 const ACTIONS = {
   back: () => CTX.navigate('order-history'),
+  importxl: () => CTX.navigate('import-order'),
   unlock: () => { if (ED.header.status === ORDER_STATUS.DRAFT) { ED.readonly = false; paint(); } },
   save: () => save(false),
   approve: () => save(true),
