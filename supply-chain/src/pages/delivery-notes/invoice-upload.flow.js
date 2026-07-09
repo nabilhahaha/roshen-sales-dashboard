@@ -109,6 +109,7 @@ export async function startInvoiceUpload(root, ctx, dnId) {
         <div class="sc-form-grid">
           ${hf('Invoice Number', 'invoice_number', p.header.invoice_number)}
           ${hf('Invoice Date', 'invoice_date', p.header.invoice_date, 'date')}
+          ${hf('Supply Date', 'supply_date', p.header.supply_date, 'date')}
           ${hf('Supplier', 'supplier', p.header.supplier)}
           ${hf('Buyer', 'buyer', p.header.buyer)}
           ${hf('PO Reference', 'po_reference', p.header.po_reference)}
@@ -116,6 +117,16 @@ export async function startInvoiceUpload(root, ctx, dnId) {
           ${hf('Total Taxable (net)', 'taxable', p.totals.taxable, 'number')}
           ${hf('Total VAT', 'vat', p.totals.vat, 'number')}
           ${hf('Grand Total', 'grand', p.totals.grand, 'number')}
+        </div></div>
+      <div class="sc-card"><div class="sc-card-h"><h3>🧾 ZATCA fields</h3><div class="sc-spacer"></div>
+        <span style="font-size:11px;color:var(--text-muted)">e-invoicing identifiers — stored with the invoice for later ZATCA submission</span></div>
+        <div class="sc-form-grid">
+          ${hf('Seller VAT (TRN)', 'z_seller_vat', (p.header.zatca || {}).seller_vat)}
+          ${hf('Seller CR', 'z_seller_cr', (p.header.zatca || {}).seller_cr)}
+          ${hf('Buyer VAT (TRN)', 'z_buyer_vat', (p.header.zatca || {}).buyer_vat)}
+          ${hf('Buyer CR', 'z_buyer_cr', (p.header.zatca || {}).buyer_cr)}
+          ${hf('Invoice Type Code', 'z_type_code', (p.header.zatca || {}).invoice_type_code || '388')}
+          ${hf('Payment Means', 'z_payment_means', (p.header.zatca || {}).payment_means)}
         </div></div>
       <div class="sc-card"><div class="sc-card-h"><h3>Line items</h3><div class="sc-spacer"></div>
         <span style="font-size:11px;color:var(--text-muted)">bind each invoice line to the delivery-note SKU it corresponds to</span></div>
@@ -190,9 +201,15 @@ export async function startInvoiceUpload(root, ctx, dnId) {
         };
       });
       const validation = { ...state.cmp, override: !!override };
+      const zatca = {
+        seller_vat: p.header.z_seller_vat || null, seller_cr: p.header.z_seller_cr || null,
+        buyer_vat: p.header.z_buyer_vat || null, buyer_cr: p.header.z_buyer_cr || null,
+        invoice_type_code: p.header.z_type_code || '388', payment_means: p.header.z_payment_means || null,
+      };
       await createSupplierInvoiceFromUpload({
         orderId: dn.order_id, deliveryNoteId: dn.id, header: p.header, totals: p.totals,
-        lines, document: doc, extracted: { header: p.header, totals: p.totals, lines: p.lines }, validation, status, createdBy: 'invoice-upload',
+        lines, document: doc, zatca, docType: 'invoice',
+        extracted: { header: p.header, totals: p.totals, lines: p.lines }, validation, status, createdBy: 'invoice-upload',
       });
       toast('Supplier invoice saved · ' + status, status === 'Matched' ? 'ok' : 'info');
       ctx.navigate('delivery-notes', { view: 'detail', dnId });

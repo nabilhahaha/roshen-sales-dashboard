@@ -44,18 +44,22 @@ export async function getInvoiceDocument(invoiceId) {
 
 export async function listInvoices(orderId) {
   let q = getClient().from('supplier_invoices')
-    .select('*, delivery_notes(dn_number)').order('created_at', { ascending: false });
+    .select('*, delivery_notes(dn_number), supply_orders(order_number,status)').order('created_at', { ascending: false });
   if (orderId) q = q.eq('order_id', orderId);
   const { data, error } = await q;
   if (error) throw error;
-  return (data || []).map((i) => ({ ...i, delivery_note: one(i.delivery_notes) }));
+  return (data || []).map((i) => ({ ...i, delivery_note: one(i.delivery_notes), order: one(i.supply_orders) }));
 }
 
 export async function getInvoice(id) {
   const { data, error } = await getClient().from('supplier_invoices')
-    .select('*, supplier_invoice_items(*), delivery_notes(dn_number)').eq('id', id).single();
+    .select('*, supplier_invoice_items(*), delivery_notes(dn_number), supply_orders(id,order_number,status)').eq('id', id).single();
   if (error) throw error;
-  return { ...data, items: data.supplier_invoice_items || [], delivery_note: one(data.delivery_notes) };
+  return {
+    ...data,
+    items: (data.supplier_invoice_items || []).slice().sort((a, b) => (a.line_no || 0) - (b.line_no || 0)),
+    delivery_note: one(data.delivery_notes), order: one(data.supply_orders),
+  };
 }
 
 // DN → invoice match context: expected net (delivered cartons × PO case price),

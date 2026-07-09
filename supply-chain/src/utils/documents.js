@@ -79,6 +79,28 @@ export function printDeliveryNote(dn) {
     `<table><thead><tr><th>Item Code</th><th>Roshen</th><th>Description</th><th>Batch/Lot</th><th>Mfg Date</th><th>Expiry</th><th class="r">Cases</th><th class="r">Boxes</th><th class="r">Pcs</th><th>QC</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="6" class="r">TOTAL CARTONS</td><td class="r">${qty(totalCases)}</td><td colspan="3"></td></tr></tfoot></table>`));
 }
 
+// Printable supplier invoice / credit note / debit note. inv = getInvoice() shape.
+export function printSupplierInvoice(inv) {
+  const its = (inv.items || []).slice().sort((a, b) => (a.line_no || 0) - (b.line_no || 0));
+  const title = (inv.doc_type === 'credit_note' ? 'Credit Note ' : inv.doc_type === 'debit_note' ? 'Debit Note ' : 'Supplier Invoice ') + (inv.invoice_number || '');
+  const z = inv.zatca || {};
+  const rows = its.map((l) => `<tr>
+    <td>${esc(l.line_no || '')}</td><td>${esc(l.roshen_id || l.item_code || '')}</td><td>${esc(l.description || '')}</td>
+    <td class="r">${qty(l.invoiced_cases)}</td><td class="r">${money(l.case_price)}</td>
+    <td class="r">${money(l.taxable_amount)}</td><td class="r">${l.vat_percent == null ? '' : qty(l.vat_percent) + '%'}</td>
+    <td class="r">${money(l.vat_amount)}</td><td class="r">${money(l.line_total)}</td></tr>`).join('');
+  return openPrint(printDoc(title,
+    kv({
+      'Document': inv.doc_type === 'credit_note' ? 'Credit Note' : inv.doc_type === 'debit_note' ? 'Debit Note' : 'Tax Invoice',
+      'Number': inv.invoice_number, 'Invoice Date': inv.invoice_date || '—', 'Supply Date': inv.supply_date || '—',
+      Supplier: inv.supplier || '—', Buyer: inv.buyer || '—', 'PO Reference': (inv.order && inv.order.order_number) || '—',
+      'DN Reference': inv.dn_reference || '—', 'Seller VAT': z.seller_vat || '—', 'Buyer VAT': z.buyer_vat || '—',
+      Currency: inv.currency || 'SAR', Status: inv.status,
+    }),
+    `<table><thead><tr><th>#</th><th>Roshen / Code</th><th>Description</th><th class="r">Cases</th><th class="r">Price/Case</th><th class="r">Taxable</th><th class="r">VAT%</th><th class="r">VAT</th><th class="r">Total</th></tr></thead><tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="5" class="r">TOTAL</td><td class="r">${money(inv.total_taxable)}</td><td class="r"></td><td class="r">${money(inv.total_vat)}</td><td class="r">${money(inv.grand_total)} ${esc(inv.currency || 'SAR')}</td></tr></tfoot></table>`));
+}
+
 export function exportErrorReport(failed, filename) {
   const aoa = [['Excel Row', 'Type', 'Item Code', 'Roshen ID', 'Quantity', 'Reason']];
   (failed || []).forEach((f) => aoa.push([f.rowNo || '', f.type || '', f.code || '', f.roshen || '', f.qty || '', f.reason || '']));

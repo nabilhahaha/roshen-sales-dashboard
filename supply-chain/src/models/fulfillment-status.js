@@ -46,7 +46,7 @@ export const STATUS_VARIANT = {
   // DN
   Imported: 'pi', 'Receiving Review': 'closed', Received: 'confirmed', Cancelled: 'draft', Reversed: 'draft', Draft: 'draft',
   // SI
-  Matched: 'confirmed', Disputed: 'closed',
+  Matched: 'confirmed', 'Partially Matched': 'pi', Disputed: 'closed', Replaced: 'draft',
   // GR / QC
   'Pending QC': 'closed', 'Partially Released': 'pi', Released: 'confirmed', Rejected: 'draft',
   // PO fulfillment

@@ -184,13 +184,25 @@ export async function getDeliveryNote(id) {
             'goods_receipts(*, goods_receipt_batches(*))')
     .eq('id', id).single();
   if (error) throw error;
+  // A delivery note may now carry several invoices (partial invoicing + credit/
+  // debit notes). Pick a primary for the header/gate — a Matched tax invoice
+  // wins, else Partially Matched, else the most recent non-cancelled.
+  const invoices = (data.supplier_invoices || []);
+  const primary = pickPrimaryInvoice(invoices);
   return {
     ...data,
     order: one(data.supply_orders),
     items: (data.delivery_note_items || []).map((it) => ({ ...it, batches: it.delivery_note_batches || [] })),
-    invoice: one(data.supplier_invoices),
+    invoice: primary,
+    invoices,
     goods_receipt: one(data.goods_receipts),
   };
+}
+
+function pickPrimaryInvoice(invoices) {
+  const active = (invoices || []).filter((i) => (i.doc_type == null || i.doc_type === 'invoice') && i.status !== 'Cancelled' && i.status !== 'Replaced');
+  const rank = (s) => (s === 'Matched' ? 3 : s === 'Partially Matched' ? 2 : 1);
+  return active.slice().sort((a, b) => rank(b.status) - rank(a.status) || (b.id - a.id))[0] || null;
 }
 
 export async function setDeliveryNoteStatus(id, status) {

@@ -10,6 +10,7 @@ export const NAV = [
     { id: 'pi-import', icon: '📥', label: 'PI Import' },
     { id: 'validation', icon: '✅', label: 'PI Validation' },
     { id: 'workflow', icon: '🔀', label: 'Workflow' },
+    { id: 'supplier-invoices', icon: '🧾', label: 'Supplier Invoices' },
   ] },
   { group: 'Logistics', items: [
     { id: 'delivery-notes', icon: '🚚', label: 'Delivery Notes' },

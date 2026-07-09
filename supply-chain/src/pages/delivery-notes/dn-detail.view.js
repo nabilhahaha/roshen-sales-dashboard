@@ -76,10 +76,12 @@ export async function renderDnDetail(root, ctx, dnId) {
       <div style="display:flex;gap:22px;flex-wrap:wrap;font-size:12.5px">
         <div>Invoice #: <b>${esc(inv.invoice_number)}</b></div><div>Date: <b>${esc(inv.invoice_date || '—')}</b></div>
         <div>Net: <b>${qty(inv.total_taxable)}</b></div><div>Grand: <b>${qty(inv.grand_total)}</b></div></div>
+      ${dn.invoices && dn.invoices.length > 1 ? `<div style="font-size:11.5px;color:var(--text-muted);margin-top:6px">${dn.invoices.length} invoices/notes on this delivery — manage them in Supplier Invoices.</div>` : ''}
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+        <button class="sc-btn sm ghost" data-act="openinv" data-id="${inv.id}">🧾 Open in Supplier Invoices →</button>
         ${inv.document_path ? '<button class="sc-btn sm ghost" data-act="viewdoc">📎 View original PDF</button>' : ''}
         ${!invMatched ? '<button class="sc-btn sm ghost" data-act="rematch">🔗 Re-check match</button>' : ''}
-        ${!grReleased ? '<button class="sc-btn sm ghost" data-act="reupload">↻ Replace invoice</button>' : ''}</div></div>`;
+        ${!grReleased ? '<button class="sc-btn sm ghost" data-act="reupload">↻ Add / replace invoice</button>' : ''}</div></div>`;
   }
 
   let grCard;
@@ -159,6 +161,7 @@ export async function renderDnDetail(root, ctx, dnId) {
       catch (e) { toast(e.message || String(e), 'err'); }
     },
     opengr: ({ id }) => ctx.navigate('goods-receiving', { view: 'detail', grId: id }),
+    openinv: ({ id }) => ctx.navigate('supplier-invoices', { view: 'detail', invoiceId: id }),
   });
 }
 
