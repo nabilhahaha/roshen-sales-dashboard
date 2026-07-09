@@ -12,7 +12,7 @@ import { toast } from '../../components/notifications/toast.js';
 import { modal } from '../../components/modal/modal.js';
 import { listSkus, createSku, listShelfLifeMappings, saveShelfLifeMapping } from '../../services/sku/sku.service.js';
 import { matchShelfLifeRows } from '../../services/sku/shelf-life-import.js';
-import { applyShelfLifeMatches, DEFAULT_MIN_PCT } from '../../services/sku/shelf-life-import.service.js';
+import { applyShelfLifeMatches, planShelfLifeChanges, DEFAULT_MIN_PCT } from '../../services/sku/shelf-life-import.service.js';
 
 const ACTOR = 'Development';
 
@@ -37,7 +37,7 @@ export async function startShelfLifeImport(root, ctx) {
   try { [skus, mappings] = await Promise.all([listSkus({ activeOnly: false }), listShelfLifeMappings().catch(() => [])]); }
   catch (e) { return mount(root, emptyState('⚠', e.message || String(e))); }
 
-  const state = { rows: [], res: null, manual: {}, remember: {} }; // manual[rowIdx]=sku_id
+  const state = { rows: [], res: null, manual: {}, remember: {}, overwrite: false }; // manual[rowIdx]=sku_id
 
   inputStep();
 
@@ -89,10 +89,20 @@ export async function startShelfLifeImport(root, ctx) {
       .concat(skus.slice().sort((a, b) => (a.item_description || '').localeCompare(b.item_description || ''))
         .map((s) => `<option value="${s.id}" ${sel === s.id ? 'selected' : ''}>[${esc(s.item_code)}] ${esc((s.item_description || '').slice(0, 46))}</option>`)).join('');
 
-    const matchRow = (m) => `<tr><td>#${m.row.i + 1}</td><td>${esc(m.row.description)}</td>
-      <td class="mono">[${esc(m.sku.item_code)}] ${esc((m.sku.item_description || '').slice(0, 40))}</td>
-      <td><span class="sc-badge ${m.via === 'roshen_id' || m.via === 'item_code' ? 'confirmed' : m.via === 'remembered_mapping' ? 'approved' : 'pi'}">${m.confidence}</span></td>
-      <td class="num"><b>${esc(String(m.row.shelf.value))} ${esc(m.row.shelf.unit)}</b></td></tr>`;
+    // Per-field change plan (exactly what Apply will write).
+    const plan = planShelfLifeChanges(r.matched, { overwrite: state.overwrite });
+    const planChanges = plan.reduce((a, p) => a + p.fields.filter((f) => f.apply).length, 0);
+    const actionChip = (f) => f.apply
+      ? `<span class="sc-badge ${f.action.includes('overwrite') ? 'closed' : 'confirmed'}">${esc(f.action)}</span>`
+      : `<span class="sc-badge none">${esc(f.action)}</span>`;
+    const planRows = plan.flatMap((p) => p.fields.map((f, j) => `<tr>
+      ${j === 0 ? `<td class="mono" rowspan="${p.fields.length}" style="vertical-align:top"><b>[${esc(p.sku.item_code)}]</b><div style="font-size:11px;color:var(--text-muted)">${esc((p.sku.item_description || '').slice(0, 38))}</div>
+        <span class="sc-badge ${p.via === 'roshen_id' || p.via === 'item_code' ? 'confirmed' : p.via === 'remembered_mapping' ? 'approved' : 'pi'}" style="margin-top:3px">${esc(p.via === 'description+pack' ? 'description' : p.via)}</span></td>` : ''}
+      <td>${esc(f.label)}</td>
+      <td>${f.current == null ? '<span style="color:var(--text-muted)">—</span>' : esc(String(f.current))}</td>
+      <td><b>${esc(String(f.next))}</b></td>
+      <td style="font-size:11.5px;color:var(--text-secondary)">${esc(f.source)}</td>
+      <td>${actionChip(f)}</td></tr>`)).join('');
 
     const needsRow = (u, kind) => {
       const i = u.row.i;
@@ -109,18 +119,23 @@ export async function startShelfLifeImport(root, ctx) {
       <div class="sc-card-h"><h3>📥 Shelf Life Import · Preview</h3><div class="sc-spacer"></div>
         <button class="sc-btn sm ghost" data-act="reinput">← Re-paste</button>
         <button class="sc-btn green" style="margin-left:8px" data-act="apply">✅ Apply <span data-el="applyN"></span></button></div>
-      <div class="sc-card" style="display:flex;gap:22px;flex-wrap:wrap;font-size:12.5px">
+      <div class="sc-card" style="display:flex;gap:22px;flex-wrap:wrap;align-items:center;font-size:12.5px">
         <div>Total rows: <b>${r.total}</b></div><div>Matched: <b style="color:#2FB344">${r.matched.length}</b></div>
+        <div>Changes to apply: <b style="color:#2FB344">${planChanges}</b></div>
         <div>To map: <b style="color:#F76707" data-el="needN">${r.unmatched.length + r.ambiguous.length}</b></div>
-        <div>Duplicates: <b>${r.duplicates.length}</b></div><div>Errors: <b>${r.errors.length}</b></div></div>
-      ${section('✅ Matched — Shelf Life will be updated', 'confirmed', r.matched.length,
-        `<div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Row</th><th>Sheet product</th><th>SKU</th><th>Match</th><th class="num">Shelf Life</th></tr></thead><tbody>${r.matched.map(matchRow).join('')}</tbody></table></div>`)}
+        <div>Duplicates: <b>${r.duplicates.length}</b></div><div>Errors: <b>${r.errors.length}</b></div>
+        <label style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);cursor:pointer">
+          <input type="checkbox" data-el="overwrite" ${state.overwrite ? 'checked' : ''}> Overwrite existing data
+        </label></div>
+      ${section('✅ Matched — change plan (Current → New)', 'confirmed', r.matched.length,
+        `<div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>SKU · match</th><th>Field</th><th>Current</th><th>New</th><th>Source</th><th>Action</th></tr></thead><tbody>${planRows}</tbody></table></div>
+        <p style="font-size:11.5px;color:var(--text-muted);margin:8px 0 0">Default mode fills empty fields only. "Overwrite existing data" also updates differing stored values (Shelf Life, Unit Weight, Units/Carton). Minimum Remaining % is only ever defaulted to ${DEFAULT_MIN_PCT}% when empty — never overwritten.</p>`)}
       <div data-el="needs">${section('⚠ Needs manual mapping (unmatched + ambiguous)', 'closed', r.unmatched.length + r.ambiguous.length,
         `<div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Row</th><th>Sheet product</th><th>Map to existing</th><th>Or create</th></tr></thead><tbody>${[...r.unmatched, ...r.ambiguous].map((u) => needsRow(u)).join('')}</tbody></table></div>`)}</div>
       ${section('🔁 Duplicates (review)', 'draft', r.duplicates.length, `<ul style="margin:0;font-size:12px;color:var(--text-secondary)">${r.duplicates.map((d) => `<li>#${d.row.i + 1} ${esc(d.row.description)} — ${esc(d.reason)}</li>`).join('')}</ul>`)}
       ${section('⛔ Errors', 'draft', r.errors.length, `<ul style="margin:0;font-size:12px;color:var(--text-secondary)">${r.errors.map((e) => `<li>#${e.row.i + 1} ${esc(e.reason)}</li>`).join('')}</ul>`)}`);
 
-    const refreshApplyN = () => { const n = r.matched.length + manualCount(); root.querySelector('[data-el="applyN"]').textContent = '(' + n + ')'; root.querySelector('[data-el="needN"]').textContent = (r.unmatched.length + r.ambiguous.length - manualCount()); };
+    const refreshApplyN = () => { const n = planChanges + manualCount(); root.querySelector('[data-el="applyN"]').textContent = '(' + n + ' changes)'; root.querySelector('[data-el="needN"]').textContent = (r.unmatched.length + r.ambiguous.length - manualCount()); };
     refreshApplyN();
 
     delegate(root, {
@@ -128,6 +143,8 @@ export async function startShelfLifeImport(root, ctx) {
       create: ({ i }) => openCreateFromRow(findRow(Number(i))),
       apply: doApply,
     });
+    const ow = root.querySelector('[data-el="overwrite"]');
+    if (ow) ow.addEventListener('change', () => { state.overwrite = ow.checked; previewStep(); });
     qsa('[data-map]', root).forEach((sel) => sel.addEventListener('change', () => {
       const i = Number(sel.dataset.map); const id = sel.value ? Number(sel.value) : null;
       if (id) state.manual[i] = id; else delete state.manual[i];
@@ -180,7 +197,7 @@ export async function startShelfLifeImport(root, ctx) {
         return row && sku ? { row, sku, via: 'manual' } : null;
       }).filter(Boolean);
       const all = [...state.res.matched, ...manualMatches];
-      const applied = await applyShelfLifeMatches(all, { actor: ACTOR });
+      const applied = await applyShelfLifeMatches(all, { actor: ACTOR, overwrite: state.overwrite });
       // remember chosen mappings
       const remembers = Object.keys(state.manual).filter((i) => state.remember[i]);
       for (const i of remembers) { const row = findRow(Number(i)); if (row) { try { await saveShelfLifeMapping({ description: row.description, sku_id: state.manual[i], createdBy: ACTOR }); } catch (e) { /* best-effort */ } } }
@@ -205,7 +222,7 @@ export async function startShelfLifeImport(root, ctx) {
         <div class="sc-sum-card"><div class="lbl">Duplicates</div><div class="val">${r.duplicates.length}</div></div>
         <div class="sc-sum-card"><div class="lbl">Errors</div><div class="val">${r.errors.length}</div></div>
       </div>
-      <p style="font-size:12.5px;color:var(--text-secondary);margin:12px 0 0">Updated Shelf Life on ${applied.updated} SKU(s) (value + unit only). ${applied.defaulted} SKU(s) defaulted to ${DEFAULT_MIN_PCT}% Minimum Remaining Shelf Life; ${applied.packFilled} SKU(s) had Unit Weight / Units-per-Carton filled from the sheet or description — existing values are never overwritten. ${manualN} manual mapping(s) applied, ${rememberedN} remembered for future imports.${stillNeed > 0 ? ' <b>' + stillNeed + '</b> product(s) still need manual mapping — re-run the import to finish them.' : ''}</p>
+      <p style="font-size:12.5px;color:var(--text-secondary);margin:12px 0 0">Updated Shelf Life on ${applied.updated} SKU(s). ${applied.defaulted} SKU(s) defaulted to ${DEFAULT_MIN_PCT}% Minimum Remaining Shelf Life; ${applied.packFilled} SKU(s) had Unit Weight / Units-per-Carton filled from the sheet or description.${applied.overwritten ? ' <b>' + applied.overwritten + '</b> existing value(s) replaced (Overwrite mode was on).' : ' Existing values were not overwritten (fill-empty mode).'} ${manualN} manual mapping(s) applied, ${rememberedN} remembered for future imports. Every change is recorded in the SKU audit history.${stillNeed > 0 ? ' <b>' + stillNeed + '</b> product(s) still need manual mapping — re-run the import to finish them.' : ''}</p>
       ${(applied.packReview && applied.packReview.length) ? `<div style="margin-top:10px;font-size:12px;color:var(--text-secondary)"><b>Pack data needs manual review (${applied.packReview.length}):</b> ${applied.packReview.map((p) => esc(p.item_code)).join(', ')} — the weight / units-per-carton could not be determined confidently; set them in SKU Master.</div>` : ''}</div>`);
     wire(root, { done: () => ctx.navigate('sku-master') });
   }
