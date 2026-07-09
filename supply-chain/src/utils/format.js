@@ -21,10 +21,18 @@ export const today = () => {
 export const approxEq = (a, b, eps = 0.01) =>
   a != null && b != null && Math.abs(Number(a) - Number(b)) <= eps;
 
+// Normalise a Roshen ID for matching: trim and drop leading zeros so the same
+// SKU compares equal whether a document prints it zero-padded ("0000510240")
+// or bare ("510240"). Non-numeric ids are only trimmed.
+export const normRoshen = (r) => {
+  const s = String(r == null ? '' : r).trim();
+  return /^\d+$/.test(s) ? s.replace(/^0+(?=\d)/, '') : s;
+};
+
 // The single line-matching key across PO / DN / invoice / GR lines: Roshen ID
 // first, else Item Code — never description. Empty string means "no key".
 export const lineKey = (roshen, code) =>
-  String(roshen == null ? '' : roshen).trim() || String(code == null ? '' : code).trim();
+  normRoshen(roshen) || String(code == null ? '' : code).trim();
 
 // Loose number parse (handles "1,234.50", "1.234,50", "1 200", currency text).
 export function parseNumber(v) {
