@@ -2,7 +2,7 @@
 // store the original file for audit + the extracted data + validation outcome.
 // The supplier invoice is a received document, never created in the ERP.
 import { mount, wire, delegate, qsa } from '../../utils/dom.js';
-import { esc, money, qty, today } from '../../utils/format.js';
+import { esc, money, qty, lineKey as keyOf } from '../../utils/format.js';
 import { loading, emptyState } from '../../components/table/table.js';
 import { toast } from '../../components/notifications/toast.js';
 import { getDeliveryNote } from '../../services/delivery-note/delivery-note.service.js';
@@ -19,7 +19,6 @@ const fileToBase64 = (file) => new Promise((resolve, reject) => {
   r.readAsDataURL(file);
 });
 
-const keyOf = (r, c) => String(r || '').trim() || String(c || '').trim();
 const tokens = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length > 2);
 function similarity(a, b) {
   const ta = new Set(tokens(a)), tb = tokens(b); if (!tb.length) return 0;

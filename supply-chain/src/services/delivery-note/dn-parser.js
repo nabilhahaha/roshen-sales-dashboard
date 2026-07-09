@@ -42,7 +42,7 @@ export function parseDeliveryNote(arrayBuffer, XLSX) {
     dn_number: headerValue(grid, /goods\s*issue\s*note|delivery\s*note(?:\s*no\.?)?|^dn\b/i, maxRow),
     dn_date: headerValue(grid, /^date\s*:?/i, maxRow),
     po_reference: headerValue(grid, /purchase\s*order\s*(no\.?|number)?/i, maxRow),
-    supplier: headerValue(grid, /^company|supplier|vendor/i, maxRow),
+    supplier: headerValue(grid, /^(?:company|supplier|vendor)\b/i, maxRow),
     customer: headerValue(grid, /^customer\b(?!\s*(cr|vat))/i, maxRow),
   };
 

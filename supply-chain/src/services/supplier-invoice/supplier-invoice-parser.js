@@ -77,12 +77,17 @@ export function parseInvoiceLines(lines) {
   lines.forEach((l) => {
     const m = l.text.match(/^(\d{1,3})\s+(.+)/);
     if (!m) return;
-    const n = numsIn(m[2]);
+    // Capture and strip any per-line tax-rate token (e.g. "15%" / "15.00%") so
+    // it never contaminates the financial-column extraction below.
+    const pctMatch = m[2].match(/(\d{1,2}(?:\.\d+)?)\s*%/);
+    const body = m[2].replace(/\d{1,2}(?:\.\d+)?\s*%/g, ' ');
+    const n = numsIn(body);
     if (n.length < 5) return;
     const [unit_price, quantity, taxable_amount, vat_amount, line_total] = n.slice(-5);
     if (!(taxable_amount > 0)) return;
-    const description = m[2].replace(/[\d.,]+%?/g, ' ').replace(/\bSAR\b/gi, ' ').replace(/\s+/g, ' ').trim();
-    const vat_percent = taxable_amount ? Math.round((vat_amount / taxable_amount) * 100) : null;
+    const description = body.replace(/[\d.,]+/g, ' ').replace(/\bSAR\b/gi, ' ').replace(/\s+/g, ' ').trim();
+    const vat_percent = pctMatch ? Number(pctMatch[1])
+      : (taxable_amount ? Math.round((vat_amount / taxable_amount) * 100) : null);
     items.push({ idx: Number(m[1]), description, unit_price, quantity, taxable_amount, vat_amount, line_total, vat_percent });
   });
 

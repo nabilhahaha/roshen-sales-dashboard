@@ -4,9 +4,8 @@
 // Note. Each DN needs exactly one matched invoice before its Goods Receipt can
 // be released.
 import { getClient, one } from '../supabase/client.js';
-import { approxEq } from '../../utils/format.js';
-
-const keyOf = (roshen, code) => String(roshen || '').trim() || String(code || '').trim();
+import { lineKey as keyOf } from '../../utils/format.js';
+import { compareInvoiceToDeliveryNote } from './invoice-compare.js';
 
 // ---- original-document storage (audit) ------------------------------
 // The original PDF is kept as base64 in supplier_invoice_documents (under this
@@ -44,85 +43,33 @@ export async function getInvoice(id) {
   return { ...data, items: data.supplier_invoice_items || [], delivery_note: one(data.delivery_notes) };
 }
 
-// Prefill invoice lines from a DN's delivered cases × PO case price (pure).
-// dnItems: [{roshen_id,item_code,description,uom, batches:[{cases}]}]
-// priceByKey: { line_key: case_price }
-export function invoiceLinesFromDeliveryNote(dnItems, priceByKey = {}) {
-  return dnItems.map((it) => {
-    const key = keyOf(it.roshen_id, it.item_code);
-    const cases = (it.batches || []).reduce((a, b) => a + Number(b.cases || 0), 0);
-    const price = Number(priceByKey[key] || 0);
-    const taxable = +(cases * price).toFixed(2);
-    const vat = +(taxable * 0.15).toFixed(2);
-    return {
-      roshen_id: it.roshen_id, item_code: it.item_code, description: it.description, uom: it.uom,
-      invoiced_cases: cases, case_price: price,
-      taxable_amount: taxable, vat_percent: 15, vat_amount: vat, line_total: +(taxable + vat).toFixed(2),
-    };
-  });
-}
-
-// inv: { orderId, deliveryNoteId, header:{invoice_number,invoice_date,supplier,currency,source_filename},
-//        lines:[...], createdBy }
-export async function createSupplierInvoice(inv) {
+// DN → invoice match context: expected net (delivered cartons × PO case price),
+// DN/PO references and line count. Shared by the upload validation and re-check.
+async function deliveryNoteMatchContext(deliveryNoteId) {
   const c = getClient();
-  const lines = inv.lines || [];
-  const total_taxable = +lines.reduce((a, l) => a + Number(l.taxable_amount || 0), 0).toFixed(2);
-  const total_vat = +lines.reduce((a, l) => a + Number(l.vat_amount || 0), 0).toFixed(2);
-
-  // resolve DN-line / PO-line ids for traceability
-  const dnItemIdx = {}, poItemIdx = {};
-  if (inv.deliveryNoteId) {
-    const { data: dnItems } = await c.from('delivery_note_items')
-      .select('id,item_code,roshen_id,po_item_id').eq('dn_id', inv.deliveryNoteId);
-    (dnItems || []).forEach((r) => {
-      dnItemIdx[keyOf(r.roshen_id, r.item_code)] = r.id;
-      poItemIdx[keyOf(r.roshen_id, r.item_code)] = r.po_item_id;
-    });
-  }
-
-  const { data: invRow, error: e1 } = await c.from('supplier_invoices').insert({
-    order_id: inv.orderId,
-    delivery_note_id: inv.deliveryNoteId || null,
-    invoice_number: inv.header.invoice_number || ('INV-' + Date.now()),
-    invoice_date: inv.header.invoice_date || null,
-    supplier: inv.header.supplier || null,
-    currency: inv.header.currency || 'SAR',
-    total_taxable, total_vat, grand_total: +(total_taxable + total_vat).toFixed(2),
-    status: 'Imported',
-    source_filename: inv.header.source_filename || null,
-    created_by: inv.createdBy || null,
-  }).select().single();
-  if (e1) throw e1;
-
-  const rows = lines.map((l) => {
-    const key = keyOf(l.roshen_id, l.item_code);
-    return {
-      invoice_id: invRow.id,
-      dn_item_id: dnItemIdx[key] || null,
-      po_item_id: poItemIdx[key] || null,
-      item_code: l.item_code || null, roshen_id: l.roshen_id || null, description: l.description || null, uom: l.uom || null,
-      invoiced_cases: l.invoiced_cases || 0, case_price: l.case_price != null ? l.case_price : null,
-      taxable_amount: l.taxable_amount != null ? l.taxable_amount : null,
-      vat_percent: l.vat_percent != null ? l.vat_percent : null,
-      vat_amount: l.vat_amount != null ? l.vat_amount : null,
-      line_total: l.line_total != null ? l.line_total : null,
-    };
+  const { data: dn, error } = await c.from('delivery_notes')
+    .select('dn_number,po_reference,order_id, delivery_note_items(item_code,roshen_id, delivery_note_batches(cases))')
+    .eq('id', deliveryNoteId).single();
+  if (error) throw error;
+  const { data: ful } = await c.from('po_line_fulfillment').select('line_key,price_case').eq('order_id', dn.order_id);
+  const priceByKey = {};
+  (ful || []).forEach((r) => { priceByKey[r.line_key] = Number(r.price_case || 0); });
+  let expectedNet = 0; let lineCount = 0;
+  (dn.delivery_note_items || []).forEach((it) => {
+    const key = keyOf(it.roshen_id, it.item_code);
+    const cartons = (it.delivery_note_batches || []).reduce((a, b) => a + Number(b.cases || 0), 0);
+    expectedNet += cartons * (priceByKey[key] || 0);
+    lineCount++;
   });
-  if (rows.length) {
-    const { error: e2 } = await c.from('supplier_invoice_items').insert(rows);
-    if (e2) throw e2;
-  }
-  return invRow;
+  return { orderId: dn.order_id, dnNumber: dn.dn_number, poReference: dn.po_reference, expectedNet: +expectedNet.toFixed(2), lineCount };
 }
 
 // Create an invoice from an uploaded supplier document (PDF). Stores the header,
-// the extracted payload + validation outcome, the original file path for audit,
-// and the (user-verified, SKU-bound) line items. `status` is decided by the
+// the extracted payload + validation outcome, the original file for audit, and
+// the (user-verified, SKU-bound) line items. `status` is decided by the
 // validation screen: Matched unlocks goods receiving, Disputed does not.
-// inv: { orderId, deliveryNoteId, header:{invoice_number,invoice_date,supplier,buyer,po_reference,dn_reference,currency},
-//        totals:{taxable,vat,grand}, lines:[{roshen_id,item_code,description,invoiced_cases,case_price,
-//        taxable_amount,vat_percent,vat_amount,line_total}], document:{path,name}, extracted, validation, status, createdBy }
+// inv: { orderId, deliveryNoteId, header, totals, lines, document:{name,mime,size,base64},
+//        extracted, validation, status, createdBy }
 export async function createSupplierInvoiceFromUpload(inv) {
   const c = getClient();
   const lines = inv.lines || [];
@@ -134,15 +81,22 @@ export async function createSupplierInvoiceFromUpload(inv) {
 
   const dnItemIdx = {}, poItemIdx = {};
   if (inv.deliveryNoteId) {
-    // A delivery note has exactly one supplier invoice — replace any existing
-    // one (uploading again / "Replace invoice"). Cascade removes its items and
-    // document, avoiding the delivery_note_id / invoice_number unique clashes.
+    // A delivery note has exactly one supplier invoice. Replacing it is only
+    // safe before any goods receipt exists — once received, the invoice
+    // justifies posted inventory and its line ids are referenced by GR batches.
+    const { data: grs } = await c.from('goods_receipts').select('id').eq('delivery_note_id', inv.deliveryNoteId);
     const { data: prev } = await c.from('supplier_invoices').select('id').eq('delivery_note_id', inv.deliveryNoteId);
-    if (prev && prev.length) await c.from('supplier_invoices').delete().in('id', prev.map((p) => p.id));
-
+    if (prev && prev.length) {
+      if (grs && grs.length) throw new Error('A goods receipt already exists for this delivery note — the supplier invoice can no longer be replaced.');
+      const { error: delErr } = await c.from('supplier_invoices').delete().in('id', prev.map((p) => p.id));
+      if (delErr) throw delErr;
+    }
     const { data: dnItems } = await c.from('delivery_note_items')
       .select('id,item_code,roshen_id,po_item_id').eq('dn_id', inv.deliveryNoteId);
-    (dnItems || []).forEach((r) => { dnItemIdx[keyOf(r.roshen_id, r.item_code)] = r.id; poItemIdx[keyOf(r.roshen_id, r.item_code)] = r.po_item_id; });
+    (dnItems || []).forEach((r) => {
+      const k = keyOf(r.roshen_id, r.item_code);
+      if (k) { dnItemIdx[k] = r.id; poItemIdx[k] = r.po_item_id; }
+    });
   }
 
   const { data: invRow, error: e1 } = await c.from('supplier_invoices').insert({
@@ -164,65 +118,66 @@ export async function createSupplierInvoiceFromUpload(inv) {
     match_summary: inv.validation || null,
     created_by: inv.createdBy || null,
   }).select().single();
-  if (e1) throw e1;
-
-  // attach the original PDF (audit) once we have the invoice id
-  if (inv.document && inv.document.base64) {
-    try { await saveInvoiceDocument(invRow.id, inv.orderId, { ...inv.document, createdBy: inv.createdBy }); }
-    catch (e) { /* invoice is saved; document attach is best-effort */ }
+  if (e1) {
+    if (e1.code === '23505') throw new Error('An invoice with this number already exists for this purchase order. Check the invoice number before saving.');
+    throw e1;
   }
-  // record whether an original document is attached
-  await getClient().from('supplier_invoices')
-    .update({ document_path: inv.document && inv.document.base64 ? 'db:supplier_invoice_documents' : null }).eq('id', invRow.id);
+
+  const cleanup = async (msg, err) => { await c.from('supplier_invoices').delete().eq('id', invRow.id); throw new Error(msg + (err && (err.message || err) ? ': ' + (err.message || err) : '')); };
+
+  // attach the original PDF (audit). Failing loud keeps the record honest — no
+  // invoice is stored claiming an attachment it does not have.
+  const hasDoc = !!(inv.document && inv.document.base64);
+  if (hasDoc) {
+    try { await saveInvoiceDocument(invRow.id, inv.orderId, { ...inv.document, createdBy: inv.createdBy }); }
+    catch (e) { return cleanup('Could not store the invoice PDF', e); }
+  }
+  {
+    const { error } = await c.from('supplier_invoices').update({ document_path: hasDoc ? 'db:supplier_invoice_documents' : null }).eq('id', invRow.id);
+    if (error) return cleanup('Could not finalise the invoice', error);
+  }
 
   const rows = lines.map((l) => {
     const key = keyOf(l.roshen_id, l.item_code);
     return {
-      invoice_id: invRow.id, dn_item_id: dnItemIdx[key] || null, po_item_id: poItemIdx[key] || null,
+      invoice_id: invRow.id, dn_item_id: key ? (dnItemIdx[key] || null) : null, po_item_id: key ? (poItemIdx[key] || null) : null,
       item_code: l.item_code || null, roshen_id: l.roshen_id || null, description: l.description || null, uom: l.uom || null,
       invoiced_cases: l.invoiced_cases || 0, case_price: l.case_price != null ? l.case_price : null,
       taxable_amount: l.taxable_amount != null ? l.taxable_amount : null,
       vat_percent: l.vat_percent != null ? l.vat_percent : null,
       vat_amount: l.vat_amount != null ? l.vat_amount : null,
       line_total: l.line_total != null ? l.line_total : null,
-      match_status: l.roshen_id || l.item_code ? 'bound' : 'unbound',
+      match_status: key ? 'bound' : 'unbound',
     };
   });
   if (rows.length) {
     const { error: e2 } = await c.from('supplier_invoice_items').insert(rows);
-    if (e2) throw e2;
+    if (e2) return cleanup('Could not store the invoice lines', e2);
   }
   return invRow;
 }
 
-// Compare invoice lines to the DN delivered cases; set Matched or Disputed.
+// Re-validate the stored invoice against its delivery note at the VALUE level
+// (invoice net vs DN expected net) plus DN/PO reference identity — the same
+// engine the upload screen uses. Sets Matched (unlocks receiving) or Disputed.
 export async function matchInvoiceToDeliveryNote(invoiceId) {
   const c = getClient();
   const inv = await getInvoice(invoiceId);
   if (!inv.delivery_note_id) throw new Error('Invoice is not linked to a delivery note.');
 
-  const { data: dnItems, error } = await c.from('delivery_note_items')
-    .select('item_code,roshen_id, delivery_note_batches(cases)').eq('dn_id', inv.delivery_note_id);
+  const ctx = await deliveryNoteMatchContext(inv.delivery_note_id);
+  const poRef = inv.extracted && inv.extracted.header ? inv.extracted.header.po_reference : null;
+  const parsedLike = {
+    header: { dn_reference: inv.dn_reference, po_reference: poRef },
+    totals: { taxable: inv.total_taxable, vat: inv.total_vat, grand: inv.grand_total },
+    lines: inv.items || [],
+  };
+  const cmp = compareInvoiceToDeliveryNote(parsedLike, ctx);
+  const status = cmp.ok ? 'Matched' : 'Disputed';
+  const { error } = await c.from('supplier_invoices')
+    .update({ status, match_summary: cmp, validation_summary: cmp, updated_at: new Date().toISOString() }).eq('id', invoiceId);
   if (error) throw error;
-  const dnByKey = {};
-  (dnItems || []).forEach((it) => {
-    dnByKey[keyOf(it.roshen_id, it.item_code)] = (it.delivery_note_batches || []).reduce((a, b) => a + Number(b.cases || 0), 0);
-  });
-
-  let mismatches = 0;
-  const rows = inv.items.map((l) => {
-    const dnCases = dnByKey[keyOf(l.roshen_id, l.item_code)];
-    const ok = dnCases != null && approxEq(dnCases, l.invoiced_cases, 0.01);
-    if (!ok) mismatches++;
-    return { key: keyOf(l.roshen_id, l.item_code), invoiced: l.invoiced_cases, delivered: dnCases == null ? null : dnCases, ok };
-  });
-  const status = mismatches === 0 ? 'Matched' : 'Disputed';
-  const summary = { mismatches, lines: rows, matched: status === 'Matched' };
-
-  const { error: e2 } = await c.from('supplier_invoices')
-    .update({ status, match_summary: summary, updated_at: new Date().toISOString() }).eq('id', invoiceId);
-  if (e2) throw e2;
-  return { status, summary };
+  return { status, summary: cmp, matched: cmp.ok };
 }
 
 // A DN is invoice-gated: exactly one matched invoice unlocks goods receiving.

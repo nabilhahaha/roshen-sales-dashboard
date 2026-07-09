@@ -21,6 +21,11 @@ export const today = () => {
 export const approxEq = (a, b, eps = 0.01) =>
   a != null && b != null && Math.abs(Number(a) - Number(b)) <= eps;
 
+// The single line-matching key across PO / DN / invoice / GR lines: Roshen ID
+// first, else Item Code — never description. Empty string means "no key".
+export const lineKey = (roshen, code) =>
+  String(roshen == null ? '' : roshen).trim() || String(code == null ? '' : code).trim();
+
 // Loose number parse (handles "1,234.50", "1.234,50", "1 200", currency text).
 export function parseNumber(v) {
   if (v == null) return null;

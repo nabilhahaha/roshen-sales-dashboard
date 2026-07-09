@@ -34,9 +34,13 @@ export function compareInvoiceToDeliveryNote(parsed, dnCtx) {
     { key: 'lines', label: 'Line count', expected: dnCtx.lineCount, actual: (parsed.lines || []).length, ok: dnCtx.lineCount === (parsed.lines || []).length },
   ];
 
-  // Critical checks that gate a clean match: reference identity (when present)
-  // and the net value. VAT / line-count differences are advisory.
-  const critical = checks.filter((c) => c.key === 'value' || (c.key === 'dn_ref' && refOk !== null));
+  // Critical checks that gate a clean match: the net value, plus any document
+  // reference that is present must AGREE — a DN/PO reference that actively
+  // contradicts fails the match (a null/unparsed reference is advisory only).
+  const critical = checks.filter((c) =>
+    c.key === 'value' ||
+    (c.key === 'dn_ref' && refOk !== null) ||
+    (c.key === 'po_ref' && poOk !== null));
   const ok = critical.every((c) => c.ok);
 
   return {

@@ -2,10 +2,8 @@
 // physical batches, computes batch-level shelf life, and matches each line to
 // the Purchase Order's fulfillment ledger (open delivery balance). Matching is
 // only by Roshen ID → Item Code, never by description.
-import { parseNumber } from '../../utils/format.js';
+import { parseNumber, lineKey as keyOf } from '../../utils/format.js';
 import { shelfLife, parseDate, toISO } from '../../models/shelf-life.js';
-
-const keyOf = (roshen, code) => String(roshen || '').trim() || String(code || '').trim();
 
 // mapByIdx: { colIdx: fieldKey }  ->  field: colIdx
 function fieldIndex(mapByIdx) {
@@ -40,14 +38,15 @@ export function buildDeliveryNote(opts) {
     if (!key) return; // skip rows with no usable key
 
     const sku = byRoshen[roshen] || byCode[code] || null;
-    // Skip footer / non-item rows: a real line must have a Roshen ID or a
-    // resolvable SKU. This drops "TOTAL", signature and confirmation rows.
-    if (!roshen && !sku) return;
     const cases = parseNumber(val(row, 'cartons')) || 0;
     const boxes = parseNumber(val(row, 'boxes'));
     const pieces = parseNumber(val(row, 'pieces'));
     const expiry = toISO(val(row, 'expiry_date'));
     const mfg = toISO(val(row, 'manufacturing_date'));
+    // Skip footer / non-item rows: a real batch line has a Roshen ID, a
+    // resolvable SKU, or at least a real expiry date. This drops "TOTAL",
+    // signature and confirmation rows while keeping genuine unmapped items.
+    if (!roshen && !sku && !expiry) return;
     const batchNo = String(val(row, 'batch_no') || '').trim() || null;
     const desc = String(val(row, 'description') || '').trim() || (sku && sku.item_description) || '';
 

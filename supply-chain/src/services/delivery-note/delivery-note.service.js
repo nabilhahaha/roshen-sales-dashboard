@@ -2,8 +2,7 @@
 // physical batches. Preserves the PO-line → DN-line → DN-batch traceability
 // chain. Pages talk to this; only this talks to Supabase.
 import { getClient, one } from '../supabase/client.js';
-
-const keyOf = (roshen, code) => String(roshen || '').trim() || String(code || '').trim();
+import { lineKey as keyOf } from '../../utils/format.js';
 
 // Orders that have reached the phase where deliveries can arrive.
 export const RECEIVABLE_STATUSES = [

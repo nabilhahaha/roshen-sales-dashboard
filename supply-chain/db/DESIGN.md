@@ -61,8 +61,11 @@ case came from.
 
 6. **Movement-based inventory.** `inventory_movements` is the source of
    truth (with source-document refs + `unit_cost` for future costing).
-   The `inventory` table is a derived running balance per
-   `(roshen_id, batch_no, expiry_date, warehouse)`.
+   `inventory` is a **view** that aggregates those movements per
+   `(roshen_id, batch_no, expiry_date, warehouse)` — the on-hand balance is
+   always derived, never stored, so it cannot drift or duplicate. Releasing a
+   goods receipt only inserts movements. A goods receipt is unique per delivery
+   note, so creation is idempotent.
 
 ## Shelf-life management
 

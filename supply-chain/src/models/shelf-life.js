@@ -16,9 +16,10 @@ export function parseDate(v) {
   if (v == null || v === '') return null;
   if (v instanceof Date) return isNaN(v) ? null : v;
   if (typeof v === 'number' || /^\d+(\.\d+)?$/.test(String(v).trim())) {
-    // Excel serial day number (1900 date system)
+    // Excel serial day number (1900 date system). Restrict to a plausible modern
+    // range (~1985–2065) so bare years like "2026" are not misread as serials.
     const n = Number(v);
-    if (n > 59 && n < 60000) return new Date(Math.round((n - 25569) * MS_DAY));
+    if (n >= 31000 && n < 60000) return new Date(Math.round((n - 25569) * MS_DAY));
   }
   const s = String(v).trim();
   let m = s.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})$/);        // yyyy-mm-dd
@@ -71,8 +72,11 @@ export function shelfLife(sku, batch, asOf) {
     remainingPct = +remainingPct.toFixed(1);
   }
 
+  const expired = remainingDays < 0;
   const minPct = sku && sku.min_remaining_shelf_life_pct != null ? Number(sku.min_remaining_shelf_life_pct) : null;
-  const belowMinimum = minPct != null && remainingPct != null && remainingPct < minPct;
+  // An expired batch is always below minimum, even when the % can't be computed
+  // (no manufacturing date and no SKU shelf-life value).
+  const belowMinimum = expired || (minPct != null && remainingPct != null && remainingPct < minPct);
 
   return {
     known: true,
@@ -81,8 +85,8 @@ export function shelfLife(sku, batch, asOf) {
     remainingDays,
     remainingPct, consumedPct,
     minPct, belowMinimum,
-    expired: remainingDays < 0,
-    band: band(remainingPct),
+    expired,
+    band: expired ? 'red' : band(remainingPct),
   };
 }
 
