@@ -244,7 +244,7 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:-apple-syst
 /* confirm modal */
 .sc-modal-overlay { position: fixed; inset: 0; z-index: 100002; background: rgba(6,12,24,.66); display: none; align-items: center; justify-content: center; padding: 20px; }
 .sc-modal-overlay.open { display: flex; }
-.sc-modal { background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 16px; padding: 24px; max-width: 440px; width: 100%; box-shadow: 0 24px 70px rgba(0,0,0,.5); }
+.sc-modal { background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 16px; padding: 24px; max-width: 560px; width: 100%; box-shadow: 0 24px 70px rgba(0,0,0,.5); max-height: calc(100vh - 40px); overflow-y: auto; }
 .sc-modal h4 { font-size: 16px; font-weight: 800; color: var(--text-primary); margin-bottom: 8px; }
 .sc-modal p { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
 .sc-modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; flex-wrap: wrap; }
