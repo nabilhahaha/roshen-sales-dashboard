@@ -20,7 +20,8 @@ export async function getPiWithItems(piId) {
 // Persist a freshly imported+compared PI and advance the order to "PI Imported".
 export async function saveImportedPi({ orderId, parsed, compare }) {
   const s = compare.summary;
-  const status = s.ok ? 'Imported' : 'Validation Required';
+  // The PI is never rejected on differences — the order goes to revision.
+  const status = 'Imported';
   const insert = {
     order_id: orderId,
     pi_number: parsed.header.pi_number,
@@ -61,28 +62,26 @@ export async function saveImportedPi({ orderId, parsed, compare }) {
     const it = await sb().from('proforma_invoice_items').insert(items);
     if (it.error) throw it.error;
   }
-  const up = await sb().from('supply_orders').update({ status: 'PI Imported' }).eq('id', orderId);
+  // Differences are expected — route to revision instead of rejecting the PI.
+  const orderStatus = s.ok ? 'PI Imported' : 'Revision Required';
+  const up = await sb().from('supply_orders').update({ status: orderStatus }).eq('id', orderId);
   if (up.error) throw up.error;
   return pi;
 }
 
+// Approve the PI once the PO (latest revision) matches it.
 export async function approvePi(piId, orderId) {
   const a = await sb().from('proforma_invoices')
     .update({ status: 'Approved', approved_at: new Date().toISOString() }).eq('id', piId);
   if (a.error) throw a.error;
-  await sb().from('supply_orders').update({ status: 'PI Approved' }).eq('id', orderId);
+  const u = await sb().from('supply_orders').update({ status: 'PI Approved' }).eq('id', orderId);
+  if (u.error) throw u.error;
 }
 
-export async function rejectPi(piId, orderId) {
-  const a = await sb().from('proforma_invoices').update({ status: 'Rejected' }).eq('id', piId);
-  if (a.error) throw a.error;
-  await sb().from('supply_orders').update({ status: 'Approved' }).eq('id', orderId);
-}
-
-export async function returnToRevision(piId, orderId) {
-  await sb().from('proforma_invoices').update({ status: 'Rejected' }).eq('id', piId);
-  const a = await sb().from('supply_orders').update({ status: 'Draft' }).eq('id', orderId);
-  if (a.error) throw a.error;
+// Final step: mark the (PI-approved) order ready for shipment.
+export async function readyForShipment(orderId) {
+  const u = await sb().from('supply_orders').update({ status: 'Ready for Shipment' }).eq('id', orderId);
+  if (u.error) throw u.error;
 }
 
 export { one };

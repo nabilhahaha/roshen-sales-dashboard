@@ -12,6 +12,7 @@ import * as piImport from './pages/pi-import/pi-import.page.js';
 import * as validation from './pages/validation/validation.page.js';
 import * as workflow from './pages/workflow/workflow.page.js';
 import * as importOrder from './pages/purchase-orders/import/import-order.page.js';
+import * as poRevision from './pages/purchase-orders/revision/revision.page.js';
 import * as placeholder from './pages/placeholder.page.js';
 
 const PAGES = {
@@ -20,13 +21,14 @@ const PAGES = {
   'purchase-orders': purchaseOrders,
   'order-history': orderHistory,
   'import-order': importOrder,
+  'po-revision': poRevision,
   'pi-import': piImport,
   validation,
   workflow,
 };
 
 // routes reachable by the router but not shown as sidebar items
-const EXTRA_ROUTES = { 'import-order': 'purchase-orders' };
+const EXTRA_ROUTES = { 'import-order': 'purchase-orders', 'po-revision': 'purchase-orders' };
 
 let shell = null;
 let currentCtx = null;

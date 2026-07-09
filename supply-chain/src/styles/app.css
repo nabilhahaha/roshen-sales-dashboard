@@ -250,3 +250,10 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:-apple-syst
   .sc-nav { margin-left: 0; width: 100%; }
   .sc-conn { display: none; }
 }
+
+/* ----- Revision history / audit timeline ----- */
+.erp-rev-timeline{display:flex;flex-direction:column;gap:10px}
+.erp-rev{border:1px solid var(--border);border-radius:12px;padding:12px 14px;background:var(--bg-card-hover)}
+.erp-rev-h{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:13px;color:var(--text-primary)}
+.erp-rev-changes{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.erp-rev-change{font-size:12.5px;color:var(--text-secondary);padding:5px 8px;border-radius:7px;background:var(--bg-input);overflow:hidden}

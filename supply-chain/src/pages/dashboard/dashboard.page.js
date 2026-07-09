@@ -5,11 +5,9 @@ import { orderBadge, piBadge, loading, emptyState, card, tableWrap } from '../..
 import { countSkus } from '../../services/sku/sku.service.js';
 import { listOrders } from '../../services/purchase-orders/orders.service.js';
 import { listPis } from '../../services/pi/pi.service.js';
+import { ORDER_STAGES as STAGE_NAMES, ORDER_STAGE_COLOR } from '../../models/order-status.js';
 
-const ORDER_STAGES = [
-  ['Draft', '#8FA3BD'], ['Approved', '#2FB344'], ['PI Imported', '#9775FA'],
-  ['PI Approved', '#22B8CF'], ['Closed', '#F76707'],
-];
+const ORDER_STAGES = STAGE_NAMES.map((s) => [s, ORDER_STAGE_COLOR[s] || '#8FA3BD']);
 
 export async function render(root, ctx) {
   mount(root, loading('Loading supply-chain metrics…'));
