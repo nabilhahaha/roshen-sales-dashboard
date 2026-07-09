@@ -11,6 +11,7 @@ import * as orderHistory from './pages/order-history/order-history.page.js';
 import * as piImport from './pages/pi-import/pi-import.page.js';
 import * as validation from './pages/validation/validation.page.js';
 import * as workflow from './pages/workflow/workflow.page.js';
+import * as importOrder from './pages/purchase-orders/import/import-order.page.js';
 import * as placeholder from './pages/placeholder.page.js';
 
 const PAGES = {
@@ -18,17 +19,21 @@ const PAGES = {
   'sku-master': skuMaster,
   'purchase-orders': purchaseOrders,
   'order-history': orderHistory,
+  'import-order': importOrder,
   'pi-import': piImport,
   validation,
   workflow,
 };
 
+// routes reachable by the router but not shown as sidebar items
+const EXTRA_ROUTES = { 'import-order': 'purchase-orders' };
+
 let shell = null;
 let currentCtx = null;
 
 function navigate(section, params) {
-  if (!isSection(section)) section = 'dashboard';
-  shell.setActive(section);
+  if (!isSection(section) && !PAGES[section]) section = 'dashboard';
+  shell.setActive(EXTRA_ROUTES[section] || section);
   try { history.replaceState(null, '', '#' + section); } catch (e) {}
 
   const view = document.createElement('div');
