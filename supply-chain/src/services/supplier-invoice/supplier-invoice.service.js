@@ -134,6 +134,12 @@ export async function createSupplierInvoiceFromUpload(inv) {
 
   const dnItemIdx = {}, poItemIdx = {};
   if (inv.deliveryNoteId) {
+    // A delivery note has exactly one supplier invoice — replace any existing
+    // one (uploading again / "Replace invoice"). Cascade removes its items and
+    // document, avoiding the delivery_note_id / invoice_number unique clashes.
+    const { data: prev } = await c.from('supplier_invoices').select('id').eq('delivery_note_id', inv.deliveryNoteId);
+    if (prev && prev.length) await c.from('supplier_invoices').delete().in('id', prev.map((p) => p.id));
+
     const { data: dnItems } = await c.from('delivery_note_items')
       .select('id,item_code,roshen_id,po_item_id').eq('dn_id', inv.deliveryNoteId);
     (dnItems || []).forEach((r) => { dnItemIdx[keyOf(r.roshen_id, r.item_code)] = r.id; poItemIdx[keyOf(r.roshen_id, r.item_code)] = r.po_item_id; });
