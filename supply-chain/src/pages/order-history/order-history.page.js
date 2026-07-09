@@ -6,6 +6,7 @@ import { toast } from '../../components/notifications/toast.js';
 import { one } from '../../services/supabase/client.js';
 import { listOrders, getOrder } from '../../services/purchase-orders/orders.service.js';
 import { printOrder, exportOrderExcel } from '../../utils/documents.js';
+import { startImportFlow } from '../purchase-orders/import/import-order.flow.js';
 
 let ORDERS = [];
 
@@ -14,13 +15,25 @@ export async function render(root, ctx) {
     <div class="sc-card-h"><h3>📋 Purchase Orders</h3><div class="sc-spacer"></div>
       <input class="sc-input" style="max-width:240px" data-el="search" placeholder="🔎 Filter orders…">
       <button class="sc-btn primary sm" style="margin-left:8px" data-act="new">➕ New Order</button>
+      <button class="sc-btn sm" data-act="importxl">📥 Import from Excel</button>
       <button class="sc-btn ghost sm" data-act="refresh">↻</button>
+      <input type="file" accept=".xlsx,.xls" data-el="xlfile" style="display:none">
     </div>
     <div data-el="body">${loading()}</div>
   </div>`);
 
   const body = root.querySelector('[data-el="body"]');
   const search = root.querySelector('[data-el="search"]');
+  const xlfile = root.querySelector('[data-el="xlfile"]');
+  xlfile.addEventListener('change', () => {
+    const file = xlfile.files && xlfile.files[0];
+    if (!file) return;
+    if (typeof window.XLSX === 'undefined') { toast('Excel engine not loaded', 'err'); return; }
+    const rd = new FileReader();
+    rd.onload = (e) => startImportFlow(root, ctx, e.target.result, file.name);
+    rd.readAsArrayBuffer(file);
+    xlfile.value = '';
+  });
 
   async function load() {
     body.innerHTML = loading();
@@ -71,6 +84,7 @@ export async function render(root, ctx) {
 
   delegate(root, {
     new: () => ctx.navigate('purchase-orders'),
+    importxl: () => xlfile.click(),
     refresh: load,
     view: (d) => ctx.navigate('purchase-orders', { orderId: +d.id, mode: 'view' }),
     edit: (d) => ctx.navigate('purchase-orders', { orderId: +d.id, mode: 'edit' }),
