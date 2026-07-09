@@ -4,6 +4,7 @@
 // setting) is left exactly as it was — SKU Master stays the single source of
 // truth and the import is non-destructive.
 import { getClient } from '../supabase/client.js';
+import { logSkuAudit } from './sku.service.js';
 
 const sameShelf = (sku, value, unit) =>
   String(sku.shelf_life_value == null ? '' : sku.shelf_life_value) === String(value) &&
@@ -23,9 +24,11 @@ export async function applyShelfLifeMatches(matches, { actor } = {}) {
       .eq('id', m.sku.id);            // updates value + unit ONLY — never min % / price / status
     if (error) throw error;
     updated++;
-    applied.push({ id: m.sku.id, item_code: m.sku.item_code, roshen_id: m.sku.roshen_id,
+    const rec = { id: m.sku.id, item_code: m.sku.item_code, roshen_id: m.sku.roshen_id,
       description: m.sku.item_description,
-      from: { value: m.sku.shelf_life_value, unit: m.sku.shelf_life_unit }, to: { value, unit } });
+      from: { value: m.sku.shelf_life_value, unit: m.sku.shelf_life_unit }, to: { value, unit } };
+    applied.push(rec);
+    try { await logSkuAudit(m.sku.id, 'shelf_import', { detail: { from: rec.from, to: rec.to, source: m.row.description, via: m.via }, actor }); } catch (e) { /* best-effort */ }
   }
   return { updated, unchanged, applied };
 }
