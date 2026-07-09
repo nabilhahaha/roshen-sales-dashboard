@@ -20,183 +20,7 @@
 </script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
-/* ============================================================
-   LOGIN SCREEN
-   ============================================================ */
-.login-overlay {
-  position: fixed;
-  inset: 0;
-  background: linear-gradient(135deg, #0B1220 0%, #111A2E 50%, #1A2440 100%);
-  z-index: 100000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  animation: fadeIn 0.4s ease;
-}
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-.login-overlay.hidden { display: none; }
-
-.login-bg-pattern {
-  position: absolute;
-  inset: 0;
-  background-image:
-    radial-gradient(circle at 20% 30%, rgba(255,92,110,0.10) 0%, transparent 40%),
-    radial-gradient(circle at 80% 70%, rgba(134,46,156,0.10) 0%, transparent 40%),
-    radial-gradient(circle at 50% 90%, rgba(232,89,12,0.08) 0%, transparent 40%);
-  pointer-events: none;
-}
-
-.login-box {
-  position: relative;
-  background: linear-gradient(135deg, rgba(17,26,46,0.95), rgba(26,36,64,0.95));
-  border: 1px solid rgba(255,92,110,0.25);
-  border-radius: 20px;
-  padding: 38px 36px;
-  max-width: 460px;
-  width: 100%;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,92,110,0.05);
-  backdrop-filter: blur(10px);
-  animation: slideUp 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-}
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.login-header {
-  text-align: center;
-  margin-bottom: 28px;
-}
-.login-logo {
-  width: 80px;
-  height: 80px;
-  margin: 0 auto 16px;
-  background: linear-gradient(135deg, #FF5C6E, #FF7A89);
-  border-radius: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 42px;
-  box-shadow: 0 8px 30px rgba(255,92,110,0.4);
-  animation: pulse 2s ease-in-out infinite;
-}
-@keyframes pulse {
-  0%, 100% { transform: scale(1); box-shadow: 0 8px 30px rgba(255,92,110,0.4); }
-  50% { transform: scale(1.03); box-shadow: 0 12px 40px rgba(255,92,110,0.55); }
-}
-.login-title {
-  font-size: 22px;
-  font-weight: 900;
-  color: #FF5C6E;
-  margin-bottom: 4px;
-  letter-spacing: 0.5px;
-}
-.login-subtitle {
-  font-size: 12px;
-  color: #8FA3BD;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-
-.login-form {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.login-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.login-field label {
-  font-size: 11px;
-  font-weight: 800;
-  color: #8FA3BD;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.login-select, .login-password {
-  background: rgba(11, 18, 32, 0.8);
-  border: 1.5px solid #33415E;
-  border-radius: 10px;
-  padding: 13px 14px;
-  font-size: 13.5px;
-  font-weight: 700;
-  color: #E8EEF7;
-  font-family: inherit;
-  outline: none;
-  transition: all 0.2s;
-  width: 100%;
-}
-.login-select:focus, .login-password:focus {
-  border-color: #FF5C6E;
-  background: rgba(11, 18, 32, 1);
-  box-shadow: 0 0 0 3px rgba(255,92,110,0.15);
-}
-.login-select option {
-  background: #111A2E;
-  color: #E8EEF7;
-}
-
-.login-error {
-  background: rgba(224,49,49,0.12);
-  border: 1px solid rgba(224,49,49,0.4);
-  border-radius: 8px;
-  padding: 10px 14px;
-  color: #FF8A80;
-  font-size: 12px;
-  font-weight: 700;
-  text-align: center;
-  display: none;
-  animation: shake 0.4s ease;
-}
-.login-error.show { display: block; }
-@keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-6px); }
-  75% { transform: translateX(6px); }
-}
-
-.login-btn {
-  background: linear-gradient(135deg, #FF5C6E, #FF7A89);
-  color: #0B1220;
-  border: none;
-  border-radius: 10px;
-  padding: 14px;
-  font-size: 14px;
-  font-weight: 900;
-  cursor: pointer;
-  font-family: inherit;
-  letter-spacing: 0.5px;
-  transition: all 0.2s;
-  margin-top: 6px;
-  text-transform: uppercase;
-  box-shadow: 0 4px 14px rgba(255,92,110,0.35);
-}
-.login-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(255,92,110,0.5);
-}
-.login-btn:active { transform: translateY(0); }
-
-.login-info {
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px solid var(--overlay-soft, rgba(255,255,255,0.06));
-  font-size: 10.5px;
-  color: #8FA3BD;
-  text-align: center;
-  line-height: 1.6;
-}
-.login-info strong { color: #FF5C6E; }
+/* Login screen styles removed — development build has no authentication */
 
 /* User badge in header */
 .user-badge {
@@ -262,11 +86,6 @@
   color: #FF8787;
 }
 
-@media (max-width: 600px) {
-  .login-box { padding: 28px 22px; }
-  .login-logo { width: 64px; height: 64px; font-size: 32px; }
-  .login-title { font-size: 18px; }
-}
 
 :root {
   /* === DARK MODE (default) === */
@@ -5875,79 +5694,6 @@ input[type="checkbox"] { accent-color: var(--bi-accent); }
   letter-spacing: 0.3px;
 }
 
-/* ---------- LOGIN — enterprise calm ---------- */
-.login-overlay {
-  background: var(--bi-canvas) !important;
-  background-image: none !important;
-  animation: none !important;
-}
-.login-bg-pattern { display: none !important; }
-.login-box {
-  background: var(--bi-surface) !important;
-  background-image: none !important;
-  border: 1px solid var(--bi-border) !important;
-  border-radius: 8px !important;
-  box-shadow: var(--bi-shadow-modal) !important;
-  padding: 36px 36px !important;
-  backdrop-filter: none !important;
-  animation: none !important;
-}
-.login-logo {
-  background: var(--bi-accent) !important;
-  background-image: none !important;
-  border-radius: 8px !important;
-  box-shadow: none !important;
-  animation: none !important;
-  width: 56px !important; height: 56px !important;
-  font-size: 26px !important;
-}
-.login-title {
-  color: var(--bi-text) !important;
-  font-size: 18px !important;
-  font-weight: 600 !important;
-  letter-spacing: 0 !important;
-}
-.login-subtitle {
-  color: var(--bi-text-muted) !important;
-  font-size: 11px !important;
-  letter-spacing: 1px;
-}
-.login-field label {
-  color: var(--bi-text-sec) !important;
-  font-size: 12px !important;
-  font-weight: 600 !important;
-  text-transform: none !important;
-}
-.login-select, .login-password {
-  background: var(--bi-surface) !important;
-  border: 1px solid var(--bi-border) !important;
-  border-radius: var(--bi-radius) !important;
-  color: var(--bi-text) !important;
-  font-family: var(--bi-font) !important;
-  padding: 9px 12px !important;
-  font-size: 13px !important;
-}
-.login-select:focus, .login-password:focus { border-color: var(--bi-accent) !important; outline: none; }
-.login-btn {
-  background: var(--bi-accent) !important;
-  background-image: none !important;
-  color: #fff !important;
-  border: none !important;
-  border-radius: var(--bi-radius) !important;
-  padding: 10px 16px !important;
-  font-weight: 600 !important;
-  font-size: 13px !important;
-  box-shadow: none !important;
-}
-.login-btn:hover { background: var(--bi-accent-hover) !important; }
-.login-info {
-  background: var(--bi-surface-2) !important;
-  border: 1px solid var(--bi-border) !important;
-  border-radius: var(--bi-radius) !important;
-  color: var(--bi-text-sec) !important;
-  font-size: 11px !important;
-}
-
 /* ---------- LOADER / MODALS ---------- */
 .loader { background: var(--bi-canvas) !important; }
 .loader-spinner { border-color: var(--bi-border) var(--bi-border) var(--bi-accent) !important; }
@@ -5985,7 +5731,7 @@ input[type="checkbox"] { accent-color: var(--bi-accent); }
 
 /* ---------- PRINT ---------- */
 @media print {
-  .login-overlay, .topbar-actions, .mode-switcher, .filter-bar, .logout-btn,
+  .topbar-actions, .mode-switcher, .filter-bar, .logout-btn,
   .theme-toggle-btn, #resetAllBtn, .user-badge { display: none !important; }
   body { background: #fff !important; color: #000 !important; }
   .card, .kpi-card { box-shadow: none !important; border: 1px solid #ccc !important; }
@@ -6583,7 +6329,7 @@ button:focus-visible, .tab:focus-visible, .mode-btn:focus-visible,
 .filter-trigger:focus-visible { outline-offset: 0; }
 
 /* Brand mark — subtle premium gradient; never squeezed by flex */
-.brand-logo, .login-logo {
+.brand-logo {
   background: linear-gradient(135deg, var(--bi-accent), var(--bi-accent-hover)) !important;
   font-weight: 800 !important;
   letter-spacing: -0.5px;
@@ -6605,7 +6351,6 @@ button:focus-visible, .tab:focus-visible, .mode-btn:focus-visible,
 @media (max-width: 1100px) {
   .brand-text p { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
-.login-logo { color: #fff !important; font-size: 24px !important; font-family: var(--bi-font); }
 
 /* Live indicator pulse */
 .live-dot { animation: promoLivePulse 2.4s ease-in-out infinite !important; }
@@ -6711,39 +6456,7 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus, textarea
 <body>
 
 <!-- ==================== LOGIN OVERLAY ==================== -->
-<div class="login-overlay" id="loginOverlay">
-  <div class="login-bg-pattern"></div>
-  <div class="login-box">
-    <div class="login-header">
-      <div class="login-logo">R</div>
-      <div class="login-title">ROSHEN KSA</div>
-      <div class="login-subtitle">Executive Sales Dashboard</div>
-    </div>
-    
-    <form class="login-form" onsubmit="return doLogin(event);">
-      <div class="login-field">
-        <label>Senior Management Access</label>
-        <select class="login-select" id="loginRole" required="">
-          <option value="admin" selected="">Senior Management — Roshen KSA</option>
-        </select>
-      </div>
-      
-      <div class="login-field">
-        <label>Password</label>
-        <input type="password" class="login-password" id="loginPassword" placeholder="Enter your password" required="" autocomplete="off">
-      </div>
-      
-      <div class="login-error" id="loginError">Invalid password. Please try again.</div>
-      
-      <button type="submit" class="login-btn">Sign in to Dashboard</button>
-    </form>
-    
-    <div class="login-info">
-      <strong>Confidential sales data</strong><br>
-      Authorized personnel only. Contact your administrator if you forgot your password.
-    </div>
-  </div>
-</div>
+<!-- Login screen removed — development build has no authentication -->
 
 <div class="loader" id="loader" style="display: none;">
   <div class="loader-spinner"></div>
@@ -6795,7 +6508,6 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus, textarea
     </button>
     <input type="file" id="excelFileInput" accept=".xlsx,.xls" style="display:none;" onchange="handleExcelUpload(event)">
     <input type="file" id="stockFileInput" accept=".xlsx,.xls" style="display:none;" onchange="handleStockUpload(event)">
-    <button class="logout-btn" id="logoutBtn" onclick="doLogout()" style="display: none;" aria-label="Log out">🔓 Logout</button>
   </div>
   
   <!-- Upload Progress Modal -->
@@ -8461,180 +8173,55 @@ input[type="search"]:focus, input[type="password"]:focus, select:focus, textarea
 // ============================================================
 // AUTHENTICATION SYSTEM
 // ============================================================
-const AUTH_STORAGE_KEY = 'roshen_auth_v1';
+// ───────────────────────────────────────────────────────────────
+// DEVELOPMENT BUILD — NO AUTHENTICATION.
+// The login screen, users, roles, passwords, sessions and permission checks
+// were removed. The app runs as a single unrestricted development user and
+// opens directly on the dashboard. A real authentication / authorization
+// system will be added later and must NOT be built around this placeholder.
+// ───────────────────────────────────────────────────────────────
 
-// Single user — Senior Admin. No multi-user complications.
-// Filter by Roshen Manager (Elsharake / Nabil / Amro / BTB / MT) via the filter bar.
-const USERS = {
-  'admin': {
-    name: 'Senior Management',
-    role: 'Roshen KSA Owner',
-    password: 'roshen2026',
-    managerIdx: -1,  // sees everything
-    icon: '📊',
-    color: '#FF5C6E',
-  },
+// Single development user — full access (managerIdx -1 == admin / no limits).
+const CURRENT_USER = {
+  key: 'dev',
+  name: 'Development',
+  role: 'Full Access',
+  label: 'Development',
+  icon: '🧑',
+  color: '#FF5C6E',
+  managerIdx: -1,
 };
 
-// Current authenticated user
-let CURRENT_USER = null;
+// No territory / role restrictions in the development build (null == allow all).
+const AUTH_RESTRICTED_BRANCHES    = null;
+const AUTH_RESTRICTED_BRANCH_IDS  = null;
+const AUTH_RESTRICTED_SALESMEN    = null;
+const AUTH_ALLOWED_CUSTOMER_IDS   = null;
+const AUTH_RESTRICTED_MANAGER_IDX = null;
 
-// AUTH variables — kept for legacy code paths but always null (no restrictions)
-// Filtering is now done purely through the Roshen Manager filter in the UI
-let AUTH_RESTRICTED_BRANCHES = null;
-let AUTH_RESTRICTED_BRANCH_IDS = null;
-let AUTH_RESTRICTED_SALESMEN = null;
-let AUTH_ALLOWED_CUSTOMER_IDS = null;
-
-// Branches and salesmen restricted to current user
-// AUTH MODEL — Single User (Senior Admin)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// The dashboard has ONE user (Senior Admin) who sees all data.
-// Filtering by manager/territory is done through the "Roshen Manager" filter
-// in the filter bar (e.g., select Ahmed Nabil → see all Jeddah/Makkah/Taif sales).
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-function checkAuthOnLoad() {
-  // Check if user is already logged in (this session)
-  try {
-    const saved = sessionStorage.getItem(AUTH_STORAGE_KEY);
-    if (saved) {
-      const userKey = JSON.parse(saved).userKey;
-      if (USERS[userKey]) {
-        applyAuth(userKey);
-        return true;
-      }
-    }
-  } catch (e) { /* ignore */ }
-  return false;
-}
-
-function doLogin(event) {
-  if (event) event.preventDefault();
-  const role = document.getElementById('loginRole').value;
-  // Trim password to remove accidental whitespace from autocomplete/paste
-  const passwordRaw = document.getElementById('loginPassword').value;
-  const password = (passwordRaw || '').trim();
-  const errorEl = document.getElementById('loginError');
-  
-  if (!role || !USERS[role]) {
-    errorEl.textContent = '⚠️ Please select your role.';
-    errorEl.classList.add('show');
-    return false;
-  }
-  
-  if (!password) {
-    errorEl.textContent = 'Please enter your password.';
-    errorEl.classList.add('show');
-    document.getElementById('loginPassword').focus();
-    return false;
-  }
-  
-  if (USERS[role].password !== password) {
-    errorEl.textContent = 'Invalid password. Please try again.';
-    errorEl.classList.add('show');
-    document.getElementById('loginPassword').value = '';
-    document.getElementById('loginPassword').focus();
-    return false;
-  }
-  
-  // Save session
-  try {
-    sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ userKey: role, ts: Date.now() }));
-  } catch (e) { /* ignore */ }
-  
-  applyAuth(role);
-  return false;
-}
-
-// Helper: find manager index by name (case-insensitive)
-function findManagerIdxByName(name) {
-  if (!name) return -1;
-  const target = String(name).toLowerCase().trim();
-  for (let i = 0; i < DIMS.managers.length; i++) {
-    if (String(DIMS.managers[i]).toLowerCase().trim() === target) return i;
-  }
-  return -1;
-}
-
-// Map user keys to manager names (resilient to data order changes)
-const USER_MANAGER_NAMES = {
-  'm0': 'Ahmed Elsharake',
-  'm1': 'Ahmed Nabil',
-  'm2': 'Amro Jamal',
-};
-
-function applyAuth(userKey) {
-  const user = USERS[userKey];
-  if (!user) return;
-  
-  CURRENT_USER = { key: userKey, ...user };
-  
-  // SINGLE USER MODEL — Senior Admin sees everything.
-  // Filtering is done via the Roshen Manager filter in the UI.
-  AUTH_RESTRICTED_BRANCHES = null;
-  AUTH_RESTRICTED_BRANCH_IDS = null;
-  AUTH_RESTRICTED_SALESMEN = null;
-  AUTH_RESTRICTED_MANAGER_IDX = null;
-  AUTH_ALLOWED_CUSTOMER_IDS = null;
-  
-  console.log(`Welcome ${user.name} — Senior Admin view, no AUTH restrictions.`);
-  
-  // Hide login overlay, show dashboard
-  document.getElementById('loginOverlay').classList.add('hidden');
-  document.getElementById('loader').style.display = 'flex';
-  
-  // Update user badge
+// Start the app directly as the development user (replaces the old login flow).
+function startDevSession() {
   updateUserBadge();
-  
-  // Initialize dashboard with restrictions
-  setTimeout(() => {
-    document.getElementById('loader').style.display = 'none';
-    initializeDashboard();
-  }, 600);
+  const loader = document.getElementById('loader');
+  if (loader) loader.style.display = 'none';
+  initializeDashboard();
 }
 
 function updateUserBadge() {
-  if (!CURRENT_USER) return;
-  
   const badge = document.getElementById('userBadge');
-  const logoutBtn = document.getElementById('logoutBtn');
-  if (!badge) return;
-  
-  badge.style.display = 'flex';
-  logoutBtn.style.display = 'inline-block';
-  
-  document.getElementById('userBadgeIcon').textContent = CURRENT_USER.icon;
-  document.getElementById('userBadgeIcon').style.background = `linear-gradient(135deg, ${CURRENT_USER.color}, ${CURRENT_USER.color}DD)`;
-  document.getElementById('userBadgeName').textContent = CURRENT_USER.name;
-  document.getElementById('userBadgeName').style.color = CURRENT_USER.color;
-  document.getElementById('userBadgeRole').textContent = CURRENT_USER.role;
-  
-  // Show Upload/Save buttons ONLY for admin (Senior Management)
-  // managerIdx === -1 means admin (no restriction); 0/1/2 are restricted managers
-  const isAdmin = CURRENT_USER.managerIdx === -1;
-  const uploadBtn = document.getElementById('uploadBtn');
-  const saveBtn = document.getElementById('saveBtn');
-  const resetAllBtn = document.getElementById('resetAllBtn');
-  const uploadStockBtn = document.getElementById('uploadStockBtn');
-  if (uploadBtn) {
-    uploadBtn.style.display = isAdmin ? 'inline-block' : 'none';
-  }
-  if (uploadStockBtn) {
-    uploadStockBtn.style.display = isAdmin ? 'inline-block' : 'none';
-  }
-  if (saveBtn) {
-    // Save & Share button: visible for admin always (saves current data + any uploads)
-    saveBtn.style.display = isAdmin ? 'inline-block' : 'none';
-  }
-  if (resetAllBtn) {
-    resetAllBtn.style.display = 'inline-block';
-  }
-  
-  // Show storage indicator badge (only for admin, only if uploaded data exists)
-  if (isAdmin && typeof updateStorageIndicator === 'function') {
-    setTimeout(updateStorageIndicator, 100);
-  }
+  if (badge) badge.style.display = 'flex';
+  const ic = document.getElementById('userBadgeIcon');
+  if (ic) { ic.textContent = CURRENT_USER.icon; ic.style.background = `linear-gradient(135deg, ${CURRENT_USER.color}, ${CURRENT_USER.color}DD)`; }
+  const nm = document.getElementById('userBadgeName');
+  if (nm) { nm.textContent = CURRENT_USER.name; nm.style.color = CURRENT_USER.color; }
+  const rl = document.getElementById('userBadgeRole');
+  if (rl) rl.textContent = CURRENT_USER.role;
+  // Development build: all admin-only tools are always available.
+  ['uploadBtn','uploadStockBtn','saveBtn','resetAllBtn'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'inline-block';
+  });
+  if (typeof updateStorageIndicator === 'function') setTimeout(updateStorageIndicator, 100);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -8762,19 +8349,7 @@ function showResetToast() {
   }, 2200);
 }
 
-function doLogout() {
-  if (!confirm('Logout? You will need to login again to access the dashboard.')) return;
-  try {
-    sessionStorage.removeItem(AUTH_STORAGE_KEY);
-  } catch (e) {}
-  // Reload page to fully reset
-  window.location.reload();
-}
-
-// AUTH: Map of customer ID → mgr ID for fast per-row filtering
-// This is computed at login.
-let AUTH_RESTRICTED_MANAGER_IDX = null;  // -1 / null for admin, or 0/1/2 for restricted users
-
+// (logout removed — development build has no authentication)
 // Helper: check if a customer/salesman/branch is allowed for current user
 function isAllowedSalesman(smId) {
   if (AUTH_RESTRICTED_SALESMEN === null) return true;
@@ -24467,18 +24042,8 @@ async function bootDashboard() {
     }
   }
   
-  // Now proceed with auth
-  if (checkAuthOnLoad()) {
-    // Auto-login from session
-    // applyAuth already called initializeDashboard
-  } else {
-    // Show login screen
-    document.getElementById('loginOverlay').classList.remove('hidden');
-    document.getElementById('loader').style.display = 'none';
-    setTimeout(() => {
-      document.getElementById('loginRole')?.focus();
-    }, 100);
-  }
+  // Development build: no authentication — start directly on the dashboard.
+  startDevSession();
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -27467,13 +27032,8 @@ bootDashboard()
   })
   .catch(e => {
     console.error('Boot error:', e);
-    // Fallback: try normal auth flow
-    if (checkAuthOnLoad()) {
-      // Auto-login
-    } else {
-      document.getElementById('loginOverlay').classList.remove('hidden');
-      document.getElementById('loader').style.display = 'none';
-    }
+    // Development build: start directly on the dashboard even if boot errored.
+    startDevSession();
     applyLayoutV2();
     setTimeout(applyBIChartTheme, 400);
   });
