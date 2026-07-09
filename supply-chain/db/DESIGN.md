@@ -82,6 +82,25 @@ case came from.
   auto-rejected. The warehouse manager may **Accept Exception** or **Reject
   Item**; every decision is written to `shelf_life_exceptions` (audit).
 
+## Supplier invoice (received document)
+
+The supplier invoice is **received** as the supplier's own document (PDF now,
+ZATCA XML later) — it is **not created** in the ERP. From a delivery note the
+user **uploads the PDF**; the system:
+
+1. stores the original file for audit (`supplier_invoice_documents`, base64 —
+   kept out of `storage.objects`, which carries Sales-Dashboard policies anon
+   cannot evaluate),
+2. extracts the header (invoice #, date, seller, buyer, PO/DN reference),
+   totals (net / VAT / grand) and line items via `pdf.js`,
+3. lets the user verify/correct the extracted data and **bind each invoice line
+   to the delivery-note SKU** (the system never silently matches by
+   description — supplier invoices carry no item code),
+4. validates against the delivery note at the **value** level (invoice net vs
+   DN expected net = delivered cartons × PO case price) plus DN/PO reference
+   identity — differences open an **Invoice Validation** screen,
+5. sets the invoice **Matched** (unlocks Goods Receiving) or **Disputed**.
+
 ## Tables
 
 | Table | Purpose |
@@ -89,8 +108,9 @@ case came from.
 | `delivery_notes` | DN header (many per PO) |
 | `delivery_note_items` | DN line, one per SKU |
 | `delivery_note_batches` | physical batches (1..N per line) |
-| `supplier_invoices` | invoice header (1:1 with a DN) |
-| `supplier_invoice_items` | invoice line |
+| `supplier_invoices` | invoice header (1:1 with a DN); uploaded PDF, extracted data + validation |
+| `supplier_invoice_items` | invoice line (bound to a DN SKU) |
+| `supplier_invoice_documents` | original uploaded file (base64) for audit |
 | `goods_receipts` | GR header (one per DN) |
 | `goods_receipt_batches` | batch-level receiving + QC |
 | `shelf_life_exceptions` | audit of below-minimum accept/reject decisions |

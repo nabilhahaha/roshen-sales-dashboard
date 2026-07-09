@@ -8,10 +8,12 @@ import { statusBadge } from '../../components/table/badges.js';
 import { listDeliveryNotes } from '../../services/delivery-note/delivery-note.service.js';
 import { startDnImport } from './dn-import.flow.js';
 import { renderDnDetail } from './dn-detail.view.js';
+import { startInvoiceUpload } from './invoice-upload.flow.js';
 
 export async function render(root, ctx) {
   const view = (ctx.params && ctx.params.view) || 'list';
   if (view === 'import') return startDnImport(root, ctx);
+  if (view === 'invoice' && ctx.params.dnId) return startInvoiceUpload(root, ctx, ctx.params.dnId);
   if (view === 'detail' && ctx.params.dnId) return renderDnDetail(root, ctx, ctx.params.dnId);
   return renderList(root, ctx);
 }
