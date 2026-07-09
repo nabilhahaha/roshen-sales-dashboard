@@ -12,9 +12,10 @@ export const NAV = [
     { id: 'workflow', icon: '🔀', label: 'Workflow' },
   ] },
   { group: 'Logistics', items: [
-    { id: 'shipment', icon: '🚚', label: 'Shipment', soon: true },
-    { id: 'goods-receiving', icon: '📦', label: 'Goods Receiving', soon: true },
-    { id: 'inventory', icon: '🏬', label: 'Inventory', soon: true },
+    { id: 'delivery-notes', icon: '🚚', label: 'Delivery Notes' },
+    { id: 'goods-receiving', icon: '📦', label: 'Goods Receiving' },
+    { id: 'inventory', icon: '🏬', label: 'Inventory' },
+    { id: 'shipment', icon: '🛫', label: 'Shipment', soon: true },
     { id: 'batch-tracking', icon: '🔖', label: 'Batch Tracking', soon: true },
     { id: 'expiry', icon: '⏳', label: 'Expiry Management', soon: true },
     { id: 'returns-supplier', icon: '↩️', label: 'Returns to Supplier', soon: true },

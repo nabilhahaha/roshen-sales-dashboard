@@ -8,9 +8,9 @@ import { readonlyField } from '../../components/forms/forms.js';
 
 const diffCell = (bad) => (bad ? 'style="background:rgba(224,49,49,.12);color:#ff6b6b;font-weight:700"' : '');
 
-// opts: { parsed, compare, order, saved (pi|null), skuByRoshen, handlers }
+// opts: { parsed, compare, order, saved (pi|null), skuByRoshen, disputes, handlers }
 export function renderReport(root, opts) {
-  const { parsed: p, compare: cmp, order, saved, skuByRoshen = {}, handlers = {} } = opts;
+  const { parsed: p, compare: cmp, order, saved, skuByRoshen = {}, disputes: openDisputes = [], handlers = {} } = opts;
   const s = cmp.summary, cur = p.header.currency || 'SAR';
 
   const tile = (lbl, val, cls) => `<div class="sc-sum-card ${cls || ''}"><div class="lbl">${lbl}</div><div class="val">${val}</div></div>`;
@@ -71,18 +71,41 @@ export function renderReport(root, opts) {
     actions += '<span style="font-size:12px;color:var(--text-secondary)">The purchase order matches the PI.</span>';
     actions += printExcel;
   } else {
-    // differences → create a revision (never reject)
+    // differences → the user chooses: create a revision, OR keep the PO as the
+    // contractual baseline and dispute the differences (the PI is never rejected).
+    const nDiff = s.different + s.missing + s.additional;
     actions += '<button class="sc-btn primary" data-act="revise">🛠 Create Purchase Order Revision</button>';
-    actions += `<span style="font-size:12px;color:var(--text-secondary)">${s.different + s.missing + s.additional} difference(s) — resolve them in a revision; the PI is not rejected.</span>`;
+    if (!openDisputes.length) actions += '<button class="sc-btn ghost" data-act="dispute">⚖ Keep PO — Dispute Differences</button>';
+    actions += `<span style="font-size:12px;color:var(--text-secondary)">${nDiff} difference(s). Accept them into a revision, or keep the PO baseline and record them as disputes. The PI is never rejected.</span>`;
     actions += printExcel;
   }
   actions += '</div>';
 
+  // Open-disputes panel: operations proceed on the PO baseline; disputed PI
+  // lines never enter delivery / receiving / inventory until resolved.
+  let disputeCard = '';
+  if (openDisputes.length) {
+    const drows = openDisputes.map((d) => `<tr>
+      <td><span class="sc-badge closed">${esc(lineLabel(d.kind))}</span></td>
+      <td class="mono">${esc(d.item_code || '')}<br><span style="font-size:10.5px;color:var(--text-muted)">R ${esc(d.roshen_id || '—')}</span></td>
+      <td>${esc(d.description || '')}</td>
+      <td class="num">${d.po_qty == null ? '—' : qty(d.po_qty)} → ${d.pi_qty == null ? '—' : qty(d.pi_qty)}</td>
+      <td class="num">${d.po_price == null ? '—' : money(d.po_price)} → ${d.pi_price == null ? '—' : money(d.pi_price)}</td>
+      <td class="num">${money(d.value_delta)}</td>
+      <td><button class="sc-btn sm ghost" data-act="close-dispute" data-id="${d.id}">Close</button></td></tr>`).join('');
+    disputeCard = `<div class="sc-card" style="border-left:3px solid #F76707">
+      <div class="sc-card-h"><h3>⚖ Open Disputes (${openDisputes.length})</h3><div class="sc-spacer"></div>
+        <span class="sc-badge closed">Operating on PO baseline</span></div>
+      <p style="font-size:12px;color:var(--text-secondary);margin:0 0 8px">The purchase order is unchanged and drives all operations. These PI differences are recorded as disputes and are excluded from delivery, receiving, inventory and matching until you create a revision or close them.</p>
+      ${tableWrap(`<table class="sc-table"><thead><tr><th>Type</th><th>Item</th><th>Description</th><th class="num">Qty (PO→PI)</th><th class="num">Price (PO→PI)</th><th class="num">Value Δ</th><th></th></tr></thead><tbody>${drows}</tbody></table>`)}</div>`;
+  }
+
   const back = `<div class="sc-card-h"><h3>🧾 ${saved ? 'Proforma Invoice ' + esc(saved.pi_number || '') : 'Import Proforma Invoice'}</h3>
       <div class="sc-spacer"></div>${saved ? piBadge(saved.status) : ''}
+      ${openDisputes.length ? `<span class="sc-badge closed" style="margin-left:6px">${openDisputes.length} open dispute(s)</span>` : ''}
       <button class="sc-btn sm ghost" style="margin-left:10px" data-act="back">← Back</button></div>`;
 
-  mount(root, back + head + summary + cmpCard + actions);
+  mount(root, back + head + summary + cmpCard + disputeCard + actions);
   wire(root, handlers);
 }
 

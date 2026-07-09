@@ -11,6 +11,7 @@ import { listSkus, indexByRoshen } from '../../services/sku/sku.service.js';
 import { getOrder } from '../../services/purchase-orders/orders.service.js';
 import { listPis, getPiWithItems, approvePi, readyForShipment } from '../../services/pi/pi.service.js';
 import { getEffectiveLines, listRevisions } from '../../services/purchase-orders/revision.service.js';
+import { disputeDifferences, listDisputes, closeDispute } from '../../services/purchase-orders/dispute.service.js';
 import { comparePiToOrder } from '../../services/pi/pi-compare.js';
 import { renderReport } from './validation-report.view.js';
 import { printPi, exportPiExcel } from '../../utils/documents.js';
@@ -72,16 +73,26 @@ async function openSaved(root, ctx, piId) {
   const parsed = toParsed(pi);
   // Compare the PI against the CURRENT effective PO (latest revision, else original).
   const compare = comparePiToOrder(await getEffectiveLines(order), parsed);
+  let disputes = [];
+  try { disputes = await listDisputes(order.id, { openOnly: true }); } catch (e) {}
 
   mount(root, '<div data-el="report"></div><div data-el="history"></div>');
   renderReport(root.querySelector('[data-el="report"]'), {
-    parsed, compare, order, saved: pi, skuByRoshen: SKU_BY_ROSHEN,
+    parsed, compare, order, saved: pi, skuByRoshen: SKU_BY_ROSHEN, disputes,
     handlers: {
       back: () => ctx.navigate('validation'),
       print: () => { if (!printPi(pi, order.order_number)) toast('Allow pop-ups to print', 'err'); },
       excel: () => { exportPiExcel(pi, order.order_number); toast('Exported', 'ok'); },
       // differences → open the revision screen (never reject the PI)
       revise: () => ctx.navigate('po-revision', { orderId: order.id, piId }),
+      // Option 3 — keep the PO baseline, record differences as open disputes
+      dispute: () => modal('Keep PO &amp; dispute the differences?',
+        'The purchase order stays the contractual baseline and operations continue on the <b>original PO quantities</b>. The PI differences are recorded as <b>open disputes</b> — excluded from delivery, receiving, inventory and matching — and stay visible until you create a revision or close them.',
+        [{ label: 'Keep PO & Dispute', cls: 'primary', onClick: async () => {
+            try { const r = await disputeDifferences({ orderId: order.id, piId, rows: compare.rows, skuByRoshen: SKU_BY_ROSHEN, createdBy: 'Development' }); toast(`${r.disputes} difference(s) recorded as disputes · order proceeds on PO baseline`, 'ok'); } catch (e) { toast(e.message, 'err'); return; }
+            openSaved(root, ctx, piId);
+          } }, { label: 'Cancel', cls: 'ghost' }]),
+      'close-dispute': async (d) => { try { await closeDispute(+d.id, { resolvedBy: 'Development' }); toast('Dispute closed', 'ok'); openSaved(root, ctx, piId); } catch (e) { toast(e.message, 'err'); } },
       approve: () => modal('Approve Proforma Invoice?',
         'The purchase order (latest revision) matches the PI. Mark the PI <b>Approved</b> and advance the order to <b>PI Approved</b>.',
         [{ label: 'Approve PI', cls: 'green', onClick: async () => { try { await approvePi(piId, order.id); } catch (e) { toast(e.message, 'err'); return; } toast('PI approved · order advanced to PI Approved', 'ok'); openSaved(root, ctx, piId); } }, { label: 'Cancel', cls: 'ghost' }]),

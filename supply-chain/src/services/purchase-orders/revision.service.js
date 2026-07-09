@@ -4,6 +4,7 @@
 // never modified. Each applied revision is a full line snapshot plus an audit
 // trail. Downstream modules read the LATEST revision via getEffectiveLines().
 import { getClient } from '../supabase/client.js';
+import { resolveOpenDisputes } from './dispute.service.js';
 
 const sb = () => getClient();
 
@@ -114,6 +115,9 @@ export async function applyRevision(orderId, lines, changes, piId, createdBy) {
 
   const up = await sb().from('supply_orders').update({ current_revision: revisionNo, status: 'Revision Applied' }).eq('id', orderId);
   if (up.error) throw up.error;
+
+  // A revision supersedes any open disputes for this order.
+  try { await resolveOpenDisputes(orderId, { resolvedBy: createdBy, resolution: 'Revised' }); } catch (e) { /* non-fatal */ }
   return { revisionId: rev.data.id, revisionNo };
 }
 

@@ -13,6 +13,9 @@ import * as validation from './pages/validation/validation.page.js';
 import * as workflow from './pages/workflow/workflow.page.js';
 import * as importOrder from './pages/purchase-orders/import/import-order.page.js';
 import * as poRevision from './pages/purchase-orders/revision/revision.page.js';
+import * as deliveryNotes from './pages/delivery-notes/delivery-notes.page.js';
+import * as goodsReceiving from './pages/goods-receiving/goods-receiving.page.js';
+import * as inventory from './pages/inventory/inventory.page.js';
 import * as placeholder from './pages/placeholder.page.js';
 
 const PAGES = {
@@ -25,6 +28,9 @@ const PAGES = {
   'pi-import': piImport,
   validation,
   workflow,
+  'delivery-notes': deliveryNotes,
+  'goods-receiving': goodsReceiving,
+  inventory,
 };
 
 // routes reachable by the router but not shown as sidebar items

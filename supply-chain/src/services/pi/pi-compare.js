@@ -5,7 +5,7 @@
 // is the level the purchase order is expressed in: PI case price = taxable / box,
 // PI case quantity = box/pcs, PI line net = taxable amount. Amount tolerance is
 // rounding-aware because fractional case counts make qty×price differ slightly.
-import { approxEq } from '../../utils/format.js';
+import { approxEq, normRoshen } from '../../utils/format.js';
 
 // orderLines: [{ item_code, roshen_id, description, cases, case_price, line_total }]
 // parsed:     result of pi-parser.parseGrid()
@@ -14,13 +14,13 @@ export function comparePiToOrder(orderLines, parsed) {
   const byCode = {}, byRoshen = {};
   piItems.forEach((p) => {
     if (p.pi_item_code) byCode[String(p.pi_item_code).trim()] = p;
-    if (p.roshen_id) byRoshen[String(p.roshen_id).trim()] = p;
+    if (p.roshen_id) byRoshen[normRoshen(p.roshen_id)] = p;
   });
 
   const usedPi = new Set();
   const rows = [];
   orderLines.forEach((o) => {
-    const p = (o.item_code && byCode[o.item_code]) || (o.roshen_id && byRoshen[o.roshen_id]) || null;
+    const p = (o.item_code && byCode[o.item_code]) || (o.roshen_id && byRoshen[normRoshen(o.roshen_id)]) || null;
     if (p) usedPi.add(p);
     if (!p) { rows.push({ order: o, pi: null, kind: 'missing' }); return; }
     const qtyOk = approxEq(o.cases, p.box_pcs, 0.01);
