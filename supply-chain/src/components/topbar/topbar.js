@@ -2,7 +2,7 @@
 export function topbarHtml() {
   return `
     <header class="erp-topbar">
-      <div class="erp-crumb"><span class="erp-crumb-co">Roshen KSA</span> <span class="sep">/</span> <b data-el="title">Dashboard</b></div>
+      <div class="erp-crumb"><span class="erp-crumb-co">Roshen / Relia</span> <span class="sep">/</span> <b data-el="title">Dashboard</b></div>
       <div class="erp-search"><span>🔎</span><input data-el="search" placeholder="Search SKUs, orders…" autocomplete="off"></div>
       <div class="erp-topbar-right">
         <button class="erp-iconbtn" data-el="notif" title="Pending validations">🔔<span class="erp-badge" data-el="notifCount" style="display:none"></span></button>

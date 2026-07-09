@@ -266,3 +266,14 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:-apple-syst
 .sc-input.num{text-align:right}
 .sc-shelf{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11.5px;font-weight:700;white-space:nowrap;
   color:var(--sl);background:color-mix(in srgb,var(--sl) 16%,transparent);border:1px solid color-mix(in srgb,var(--sl) 45%,transparent)}
+
+/* ---- Branded boot / loading splash (shown until the app mounts) ---- */
+.app-boot{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+  background:var(--bg-deep);color:var(--text-primary);z-index:100}
+.app-boot-logo{font-size:44px;line-height:1}
+.app-boot-name{font-size:22px;font-weight:800;letter-spacing:.4px}
+.app-boot-name span{color:var(--gold);margin:0 4px}
+.app-boot-sub{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:2px}
+.app-boot-bar{width:140px;height:3px;border-radius:3px;background:var(--border);overflow:hidden;margin-top:10px}
+.app-boot-bar span{display:block;height:100%;width:40%;border-radius:3px;background:var(--gold);animation:app-boot-slide 1.1s ease-in-out infinite}
+@keyframes app-boot-slide{0%{margin-left:-40%}100%{margin-left:100%}}

@@ -7,7 +7,7 @@ export function sidebarHtml() {
     <aside class="erp-sidebar">
       <div class="erp-brand">
         <div class="erp-brand-logo">🏭</div>
-        <div class="erp-brand-text"><b>Roshen</b><span>Supply Chain</span></div>
+        <div class="erp-brand-text"><b>Roshen / Relia</b><span>Supply Chain</span></div>
       </div>
       <nav class="erp-nav">
         ${NAV.map((g) => `

@@ -13,7 +13,7 @@ function printDoc(title, meta, table) {
     .kv div{border:1px solid #e4e8ef;border-radius:8px;padding:8px 10px}.kv span{display:block;font-size:10px;color:#7c8b9e;text-transform:uppercase;letter-spacing:.5px}.kv b{font-size:13px}
     table{width:100%;border-collapse:collapse;font-size:12px;margin-top:10px}th,td{border:1px solid #e4e8ef;padding:7px 9px;text-align:left}th{background:#f4f6fa;font-size:10px;text-transform:uppercase;letter-spacing:.5px}
     .r{text-align:right}tfoot td{font-weight:800;background:#faf6f2}@media print{body{padding:0}}
-  </style></head><body><div class="sub">Roshen Supply Chain</div><h1>${esc(title)}</h1>${meta}${table}
+  </style></head><body><div class="sub">Roshen / Relia Supply Chain</div><h1>${esc(title)}</h1>${meta}${table}
     <p style="margin-top:24px;font-size:11px;color:#7c8b9e">Generated ${esc(today())}</p></body></html>`;
 }
 function openPrint(html) {
