@@ -5,9 +5,12 @@ import { esc, money } from '../../utils/format.js';
 import { piBadge, loading, emptyState, tableWrap } from '../../components/table/table.js';
 import { toast } from '../../components/notifications/toast.js';
 import { modal } from '../../components/modal/modal.js';
+import { orderBadge } from '../../components/table/table.js';
+import { esc as escFmt, qty as fmtQty } from '../../utils/format.js';
 import { listSkus, indexByRoshen } from '../../services/sku/sku.service.js';
-import { getOrder, comparableLines } from '../../services/purchase-orders/orders.service.js';
-import { listPis, getPiWithItems, approvePi, rejectPi, returnToRevision } from '../../services/pi/pi.service.js';
+import { getOrder } from '../../services/purchase-orders/orders.service.js';
+import { listPis, getPiWithItems, approvePi, readyForShipment } from '../../services/pi/pi.service.js';
+import { getEffectiveLines, listRevisions } from '../../services/purchase-orders/revision.service.js';
 import { comparePiToOrder } from '../../services/pi/pi-compare.js';
 import { renderReport } from './validation-report.view.js';
 import { printPi, exportPiExcel } from '../../utils/documents.js';
@@ -48,7 +51,7 @@ async function list(root, ctx) {
   });
 }
 
-function toParsed(pi) {
+export function toParsed(pi) {
   return {
     header: { pi_number: pi.pi_number, pi_date: pi.pi_date, supplier: pi.supplier, customer: pi.customer, currency: pi.currency, payment_terms: pi.payment_terms, delivery_terms: pi.delivery_terms, vat_number: pi.vat_number, cr_number: pi.cr_number },
     items: (pi.proforma_invoice_items || []).slice().sort((a, b) => (a.line_no || 0) - (b.line_no || 0)).map((x) => ({
@@ -67,22 +70,63 @@ async function openSaved(root, ctx, piId) {
   try { pi = await getPiWithItems(piId); order = await getOrder(pi.order_id); }
   catch (e) { toast('Load failed: ' + e.message, 'err'); return list(root, ctx); }
   const parsed = toParsed(pi);
-  const compare = comparePiToOrder(comparableLines(order), parsed);
-  renderReport(root, {
+  // Compare the PI against the CURRENT effective PO (latest revision, else original).
+  const compare = comparePiToOrder(await getEffectiveLines(order), parsed);
+
+  mount(root, '<div data-el="report"></div><div data-el="history"></div>');
+  renderReport(root.querySelector('[data-el="report"]'), {
     parsed, compare, order, saved: pi, skuByRoshen: SKU_BY_ROSHEN,
     handlers: {
       back: () => ctx.navigate('validation'),
       print: () => { if (!printPi(pi, order.order_number)) toast('Allow pop-ups to print', 'err'); },
       excel: () => { exportPiExcel(pi, order.order_number); toast('Exported', 'ok'); },
+      // differences → open the revision screen (never reject the PI)
+      revise: () => ctx.navigate('po-revision', { orderId: order.id, piId }),
       approve: () => modal('Approve Proforma Invoice?',
-        'Marks the PI <b>Approved</b> and advances the order to <b>PI Approved</b>. Differences (if any) are accepted as agreed supplier terms.',
+        'The purchase order (latest revision) matches the PI. Mark the PI <b>Approved</b> and advance the order to <b>PI Approved</b>.',
         [{ label: 'Approve PI', cls: 'green', onClick: async () => { try { await approvePi(piId, order.id); } catch (e) { toast(e.message, 'err'); return; } toast('PI approved · order advanced to PI Approved', 'ok'); openSaved(root, ctx, piId); } }, { label: 'Cancel', cls: 'ghost' }]),
-      reject: () => modal('Reject Proforma Invoice?',
-        'Marks the PI <b>Rejected</b>. The order returns to <b>Approved</b> so a corrected PI can be imported.',
-        [{ label: 'Reject PI', cls: 'primary', onClick: async () => { try { await rejectPi(piId, order.id); } catch (e) { toast(e.message, 'err'); return; } toast('PI rejected', 'info'); openSaved(root, ctx, piId); } }, { label: 'Cancel', cls: 'ghost' }]),
-      return: () => modal('Return to order revision?',
-        'The PI will be <b>Rejected</b> and the order re-opened as <b>Draft</b> so you can adjust quantities or prices, re-approve, and import a matching PI.',
-        [{ label: 'Return to Revision', cls: 'primary', onClick: async () => { try { await returnToRevision(piId, order.id); } catch (e) { toast(e.message, 'err'); return; } toast('Order re-opened for revision', 'info'); ctx.navigate('purchase-orders', { orderId: order.id, mode: 'edit' }); } }, { label: 'Cancel', cls: 'ghost' }]),
+      ship: () => modal('Mark ready for shipment?',
+        'Finalise this order as <b>Ready for Shipment</b>. Downstream modules (Shipment, Goods Receiving, Inventory, Finance) reference the latest approved revision.',
+        [{ label: 'Ready for Shipment', cls: 'green', onClick: async () => { try { await readyForShipment(order.id); } catch (e) { toast(e.message, 'err'); return; } toast('Order ready for shipment', 'ok'); openSaved(root, ctx, piId); } }, { label: 'Cancel', cls: 'ghost' }]),
     },
   });
+  renderHistory(root.querySelector('[data-el="history"]'), order);
+}
+
+const CHANGE_LABEL = {
+  removed_item: (c) => `🗑 Removed <b>${escFmt(c.item_code)}</b>`,
+  quantity_change: (c) => `🔢 Qty <b>${escFmt(c.item_code)}</b>: ${fmtQty(c.old_qty)} → ${fmtQty(c.new_qty)}`,
+  price_change: (c) => `💲 Price <b>${escFmt(c.item_code)}</b>: ${fmtQty(c.old_price)} → ${fmtQty(c.new_price)}`,
+  added_item: (c) => `➕ Added <b>${escFmt(c.item_code)}</b>: qty ${fmtQty(c.new_qty)} @ ${fmtQty(c.new_price)}`,
+  kept_item: (c) => `↔ Kept <b>${escFmt(c.item_code)}</b>`,
+};
+
+async function renderHistory(el, order) {
+  if (!el) return;
+  let revs = [];
+  try { revs = await listRevisions(order.id); } catch (e) {}
+  revs.sort((a, b) => a.revision_no - b.revision_no);
+  const origCount = (order.supply_order_items || []).length;
+
+  const rev0 = `<div class="erp-rev"><div class="erp-rev-h"><b>Revision 0 — Original</b>
+    <span class="sc-badge none">${origCount} items</span></div>
+    <div style="font-size:12px;color:var(--text-muted)">The original purchase order, preserved for audit.</div></div>`;
+
+  const revCards = revs.map((r) => {
+    const changes = (r.supply_order_revision_changes || []).map((c) => {
+      const label = (CHANGE_LABEL[c.change_type] || (() => c.change_type))(c);
+      return `<div class="erp-rev-change">${label}${c.reason ? ` <span style="color:var(--text-muted)">— ${escFmt(c.reason)}</span>` : ''}
+        <span style="float:right;font-size:11px;color:var(--text-muted)">${escFmt(c.accepted_by || '—')} · ${escFmt(String(c.accepted_at || '').slice(0, 16).replace('T', ' '))}</span></div>`;
+    }).join('') || '<div style="font-size:12px;color:var(--text-muted)">No recorded changes.</div>';
+    return `<div class="erp-rev"><div class="erp-rev-h"><b>Revision ${r.revision_no}</b>
+      <span class="sc-badge pi">${(r.supply_order_revision_items || []).length} items</span>
+      ${order.current_revision === r.revision_no ? '<span class="sc-badge confirmed">current</span>' : ''}
+      <span style="margin-left:auto;font-size:11px;color:var(--text-muted)">${escFmt(String(r.created_at || '').slice(0, 16).replace('T', ' '))}</span></div>
+      <div class="erp-rev-changes">${changes}</div></div>`;
+  }).join('');
+
+  el.innerHTML = `<div class="sc-card"><div class="sc-card-h"><h3>🧾 Revision History &amp; Audit</h3>
+    <div class="sc-spacer"></div>${orderBadge(order.status)}
+    <span class="sc-badge none" style="margin-left:6px">Current: Revision ${order.current_revision || 0}</span></div>
+    <div class="erp-rev-timeline">${rev0}${revCards}</div></div>`;
 }

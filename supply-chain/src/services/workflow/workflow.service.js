@@ -1,7 +1,8 @@
 // Workflow service — the document pipeline across orders and their PIs.
 import { getClient, one } from '../supabase/client.js';
+import { ORDER_STAGES } from '../../models/order-status.js';
 
-export const ORDER_STAGES = ['Draft', 'Approved', 'PI Imported', 'PI Approved', 'Closed'];
+export { ORDER_STAGES };
 
 export async function listWorkflow() {
   const { data, error } = await getClient().from('supply_orders')

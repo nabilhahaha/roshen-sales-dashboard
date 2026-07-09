@@ -55,20 +55,26 @@ export function renderReport(root, opts) {
       <span style="font-size:11px;color:var(--text-muted)">Matched by Item Code → Roshen ID · values shown as Order → PI</span></div>
     ${tableWrap(`<table class="sc-table"><thead><tr><th>Item</th><th>Description</th><th class="num">Qty (cases)</th><th class="num">Price/Case</th><th class="num">Net Amount</th><th class="num">PI VAT</th><th>Result</th></tr></thead><tbody>${rows}</tbody></table>`)}</div>`;
 
+  const printExcel = '<div style="margin-left:auto;display:flex;gap:8px"><button class="sc-btn ghost" data-act="print">🖨 Print</button><button class="sc-btn ghost" data-act="excel">⬇ Excel</button></div>';
   let actions = '<div class="sc-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">';
   if (!saved) {
     actions += `<button class="sc-btn primary" data-act="save">💾 Save &amp; Link PI</button>
-      <span style="font-size:12px;color:var(--text-secondary)">Saving links this PI to ${esc(order.order_number)} with status <b>${s.ok ? 'Imported' : 'Validation Required'}</b>.</span>`;
-  } else if (saved.status === 'Imported' || saved.status === 'Validation Required') {
-    if (s.ok) actions += '<button class="sc-btn green" data-act="approve">✅ Approve PI</button>';
-    else {
-      actions += '<button class="sc-btn green" data-act="approve">✅ Accept Differences &amp; Approve</button>';
-      actions += '<button class="sc-btn" data-act="return">↩ Return to Order Revision</button>';
-    }
-    actions += '<button class="sc-btn" style="border-color:rgba(224,49,49,.4);color:#ff6b6b" data-act="reject">✗ Reject PI</button>';
-    actions += '<div style="margin-left:auto;display:flex;gap:8px"><button class="sc-btn ghost" data-act="print">🖨 Print</button><button class="sc-btn ghost" data-act="excel">⬇ Excel</button></div>';
+      <span style="font-size:12px;color:var(--text-secondary)">Saving links this PI to ${esc(order.order_number)}. Differences will open a Purchase Order revision — the PI is never rejected.</span>`;
+  } else if (saved.status === 'Approved') {
+    // PI already approved — offer the final Ready-for-Shipment step
+    if (order && order.status === 'Ready for Shipment') actions += '<span class="sc-badge confirmed">🚚 Ready for Shipment</span>';
+    else actions += '<button class="sc-btn green" data-act="ship">🚚 Mark Ready for Shipment</button>';
+    actions += printExcel;
+  } else if (s.ok) {
+    // PO (latest revision) matches the PI → approve
+    actions += '<button class="sc-btn green" data-act="approve">✅ Approve PI</button>';
+    actions += '<span style="font-size:12px;color:var(--text-secondary)">The purchase order matches the PI.</span>';
+    actions += printExcel;
   } else {
-    actions += piBadge(saved.status) + '<div style="margin-left:auto;display:flex;gap:8px"><button class="sc-btn ghost" data-act="print">🖨 Print</button><button class="sc-btn ghost" data-act="excel">⬇ Excel</button></div>';
+    // differences → create a revision (never reject)
+    actions += '<button class="sc-btn primary" data-act="revise">🛠 Create Purchase Order Revision</button>';
+    actions += `<span style="font-size:12px;color:var(--text-secondary)">${s.different + s.missing + s.additional} difference(s) — resolve them in a revision; the PI is not rejected.</span>`;
+    actions += printExcel;
   }
   actions += '</div>';
 
