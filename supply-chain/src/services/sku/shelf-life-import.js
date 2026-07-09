@@ -36,6 +36,23 @@ export function parseWeightGrams(raw) {
   return Math.round(v);
 }
 
+// Extract the pack signature from a SKU description. Recognises the formats
+// the Roshen master uses — "12X350G", "8X1KG" (count × weight), "1kg*8bags",
+// "200g*18", "72g*22pcs", "1kg/8" (weight × count), or a bare "185g" (weight
+// only). Weights are normalised to grams. Returns null when nothing can be
+// read with confidence — the caller leaves the fields empty for manual review.
+export function parsePackFromDescription(desc) {
+  const s = String(desc == null ? '' : desc).toLowerCase().replace(',', '.');
+  const toG = (num, unit) => Math.round(Number(num) * (unit === 'kg' ? 1000 : 1));
+  let m = s.match(/(\d+)\s*x\s*([\d.]+)\s*(kg|g)\b/);            // 12X350G / 8X1KG
+  if (m) return { units_per_carton: Number(m[1]), unit_weight_g: toG(m[2], m[3]) };
+  m = s.match(/([\d.]+)\s*(kg|g)\s*[*/x]\s*(\d+)/);              // 1kg*8 / 200g*18 / 1kg/8
+  if (m) return { units_per_carton: Number(m[3]), unit_weight_g: toG(m[1], m[2]) };
+  m = s.match(/([\d.]+)\s*(kg|g)\b/);                             // bare weight: 185g
+  if (m) return { units_per_carton: null, unit_weight_g: toG(m[1], m[2]) };
+  return null;
+}
+
 // ---- tokenisation ---------------------------------------------------
 // Generic words carry no discriminating power — drop them. Brand and flavour
 // words (milk, choco, cocoa, hazelnut, lemon, …) are kept: they decide matches.

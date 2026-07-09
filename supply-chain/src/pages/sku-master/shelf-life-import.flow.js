@@ -12,7 +12,7 @@ import { toast } from '../../components/notifications/toast.js';
 import { modal } from '../../components/modal/modal.js';
 import { listSkus, createSku, listShelfLifeMappings, saveShelfLifeMapping } from '../../services/sku/sku.service.js';
 import { matchShelfLifeRows } from '../../services/sku/shelf-life-import.js';
-import { applyShelfLifeMatches } from '../../services/sku/shelf-life-import.service.js';
+import { applyShelfLifeMatches, DEFAULT_MIN_PCT } from '../../services/sku/shelf-life-import.service.js';
 
 const ACTOR = 'Development';
 
@@ -152,12 +152,14 @@ export async function startShelfLifeImport(root, ctx) {
         <div class="sc-field"><label>Units / Carton</label><input id="c-units" class="sc-input" type="number" value="${row.units_per_carton != null ? row.units_per_carton : ''}"></div>
         <div class="sc-field"><label>Shelf Life Value</label><input id="c-slv" class="sc-input" type="number" value="${row.shelf ? row.shelf.value : ''}"></div>
         <div class="sc-field"><label>Shelf Life Unit</label><select id="c-slu" class="sc-select">${unitOpt}</select></div>
+        <div class="sc-field"><label>Minimum Remaining Shelf Life %</label><input id="c-min" class="sc-input" type="number" min="0" max="100" value="${DEFAULT_MIN_PCT}"></div>
       </div>`, [
       { label: 'Create & match', cls: 'primary', onClick: async () => {
           const g = (id) => (document.getElementById(id) || {}).value;
           try {
             const created = await createSku({ roshen_id: g('c-roshen'), item_code: g('c-code'), item_description: g('c-desc'),
-              unit_weight_g: g('c-weight'), units_per_carton: g('c-units'), shelf_life_value: g('c-slv'), shelf_life_unit: g('c-slu'), status: 'active' }, ACTOR);
+              unit_weight_g: g('c-weight'), units_per_carton: g('c-units'), shelf_life_value: g('c-slv'), shelf_life_unit: g('c-slu'),
+              min_remaining_shelf_life_pct: g('c-min') === '' ? DEFAULT_MIN_PCT : g('c-min'), status: 'active' }, ACTOR);
             skus.push(created);
             state.manual[row.i] = created.id; state.remember[row.i] = true;
             toast('SKU created and matched', 'ok');
@@ -197,11 +199,14 @@ export async function startShelfLifeImport(root, ctx) {
         <div class="sc-sum-card"><div class="lbl">Matched</div><div class="val">${r.matched.length + manualN}</div></div>
         <div class="sc-sum-card"><div class="lbl">Updated</div><div class="val">${applied.updated}</div></div>
         <div class="sc-sum-card"><div class="lbl">Unchanged</div><div class="val">${applied.unchanged}</div></div>
+        <div class="sc-sum-card"><div class="lbl">Min % defaulted</div><div class="val">${applied.defaulted}</div></div>
+        <div class="sc-sum-card"><div class="lbl">Pack data filled</div><div class="val">${applied.packFilled}</div></div>
         <div class="sc-sum-card"><div class="lbl">Still unmatched</div><div class="val">${stillNeed}</div></div>
         <div class="sc-sum-card"><div class="lbl">Duplicates</div><div class="val">${r.duplicates.length}</div></div>
         <div class="sc-sum-card"><div class="lbl">Errors</div><div class="val">${r.errors.length}</div></div>
       </div>
-      <p style="font-size:12.5px;color:var(--text-secondary);margin:12px 0 0">Updated Shelf Life on ${applied.updated} SKU(s) (value + unit only — minimum receiving %, weight, status and all other fields untouched). ${manualN} manual mapping(s) applied, ${rememberedN} remembered for future imports.${stillNeed > 0 ? ' <b>' + stillNeed + '</b> product(s) still need manual mapping — re-run the import to finish them.' : ''}</p></div>`);
+      <p style="font-size:12.5px;color:var(--text-secondary);margin:12px 0 0">Updated Shelf Life on ${applied.updated} SKU(s) (value + unit only). ${applied.defaulted} SKU(s) defaulted to ${DEFAULT_MIN_PCT}% Minimum Remaining Shelf Life; ${applied.packFilled} SKU(s) had Unit Weight / Units-per-Carton filled from the sheet or description — existing values are never overwritten. ${manualN} manual mapping(s) applied, ${rememberedN} remembered for future imports.${stillNeed > 0 ? ' <b>' + stillNeed + '</b> product(s) still need manual mapping — re-run the import to finish them.' : ''}</p>
+      ${(applied.packReview && applied.packReview.length) ? `<div style="margin-top:10px;font-size:12px;color:var(--text-secondary)"><b>Pack data needs manual review (${applied.packReview.length}):</b> ${applied.packReview.map((p) => esc(p.item_code)).join(', ')} — the weight / units-per-carton could not be determined confidently; set them in SKU Master.</div>` : ''}</div>`);
     wire(root, { done: () => ctx.navigate('sku-master') });
   }
 }
