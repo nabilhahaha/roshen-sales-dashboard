@@ -1,0 +1,7 @@
+-- Migration 007 — fulfillment ledger consistency with reversals.
+-- Applied as "fulfillment_view_reversal_consistency". The view now excludes
+-- Reversed (as well as Cancelled) delivery notes from delivered, and counts
+-- received only from goods receipts that are actually released (gr.status in
+-- Released/Partially Released), so a reversal correctly removes delivered +
+-- received from the ledger. Full DDL matches the applied migration
+-- (see the live po_line_fulfillment view definition).

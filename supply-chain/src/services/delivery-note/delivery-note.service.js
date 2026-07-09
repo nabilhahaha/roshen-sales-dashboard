@@ -3,6 +3,33 @@
 // chain. Pages talk to this; only this talks to Supabase.
 import { getClient, one } from '../supabase/client.js';
 import { lineKey as keyOf } from '../../utils/format.js';
+import { reverseReleasedGoodsReceipt } from '../goods-receiving/goods-receiving.service.js';
+
+// ---- audit trail ----------------------------------------------------
+export async function logDnAudit(dnId, orderId, action, { detail, note, actor } = {}) {
+  const { error } = await getClient().from('dn_audit_log').insert({
+    dn_id: dnId, order_id: orderId || null, action, detail: detail || null, note: note || null, actor: actor || null,
+  });
+  if (error) throw error;
+}
+export async function listDnAudit(dnId) {
+  const { data, error } = await getClient().from('dn_audit_log')
+    .select('*').eq('dn_id', dnId).order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+// compact snapshot of a DN's lines/batches for before/after audit detail
+function dnSnapshot(dn) {
+  return {
+    status: dn.status, dn_number: dn.dn_number, dn_date: dn.dn_date, po_reference: dn.po_reference,
+    total_cartons: dn.total_cartons,
+    lines: (dn.items || []).map((it) => ({
+      roshen_id: it.roshen_id, item_code: it.item_code,
+      cases: (it.batches || []).reduce((a, b) => a + Number(b.cases || 0), 0),
+      batches: (it.batches || []).map((b) => ({ batch_no: b.batch_no, expiry_date: b.expiry_date, manufacturing_date: b.manufacturing_date, cases: b.cases })),
+    })),
+  };
+}
 
 // Orders that have reached the phase where deliveries can arrive.
 export const RECEIVABLE_STATUSES = [
@@ -94,10 +121,18 @@ export async function createDeliveryNote(dn) {
     throw e1;
   }
 
-  for (const line of dn.lines) {
+  await insertLinesAndBatches(dnRow.id, poIdx, dn.lines);
+  try { await logDnAudit(dnRow.id, dn.orderId, 'created', { detail: { dn_number: dnNumber, lines: dn.lines.length }, actor: dn.createdBy }); } catch (e) { /* audit best-effort */ }
+  return dnRow;
+}
+
+// Insert a DN's SKU lines + physical batches (shared by create and edit).
+async function insertLinesAndBatches(dnId, poIdx, lines) {
+  const c = getClient();
+  for (const line of lines || []) {
     const lk = line.line_key || keyOf(line.roshen_id, line.item_code);
     const { data: itemRow, error: e2 } = await c.from('delivery_note_items').insert({
-      dn_id: dnRow.id,
+      dn_id: dnId,
       po_item_id: poIdx[lk] || null,
       item_code: line.item_code || null,
       roshen_id: line.roshen_id || null,
@@ -124,7 +159,6 @@ export async function createDeliveryNote(dn) {
       if (e3) throw e3;
     }
   }
-  return dnRow;
 }
 
 export async function listDeliveryNotes(orderId) {
@@ -164,4 +198,62 @@ export async function setDeliveryNoteStatus(id, status) {
   if (status === 'Received') patch.received_at = new Date().toISOString();
   const { error } = await getClient().from('delivery_notes').update(patch).eq('id', id);
   if (error) throw error;
+}
+
+const hasReleasedGr = (gr) => gr && ['Released', 'Partially Released'].includes(gr.status);
+
+// Edit a delivery note's header / lines / batches. Allowed only before goods
+// have been received. Records a before/after audit entry. The batch triggers
+// keep the fulfillment ledger consistent.
+export async function editDeliveryNote(dnId, { header, lines }, actor) {
+  const dn = await getDeliveryNote(dnId);
+  if (['Cancelled', 'Reversed'].includes(dn.status)) throw new Error(`Cannot edit a ${dn.status.toLowerCase()} delivery note.`);
+  if (hasReleasedGr(dn.goods_receipt)) throw new Error('Cannot edit — goods have already been received. Reverse the receipt first.');
+  const c = getClient();
+  const before = dnSnapshot(dn);
+
+  if (header) {
+    const patch = { updated_at: new Date().toISOString() };
+    ['dn_date', 'supplier', 'po_reference', 'notes', 'total_cartons'].forEach((k) => { if (header[k] !== undefined) patch[k] = header[k]; });
+    const { error } = await c.from('delivery_notes').update(patch).eq('id', dnId);
+    if (error) throw error;
+  }
+  if (lines) {
+    const { error: eDel } = await c.from('delivery_note_items').delete().eq('dn_id', dnId); // cascade drops batches
+    if (eDel) throw eDel;
+    await insertLinesAndBatches(dnId, await poItemIndex(dn.order_id), lines);
+  }
+  const after = dnSnapshot(await getDeliveryNote(dnId));
+  await logDnAudit(dnId, dn.order_id, 'edited', { detail: { before, after }, actor });
+  return { edited: true };
+}
+
+// Cancel a delivery note (before receiving). Excluded from the fulfillment
+// ledger; the PO balance reverts automatically.
+export async function cancelDeliveryNote(dnId, { reason, actor } = {}) {
+  const dn = await getDeliveryNote(dnId);
+  if (dn.status === 'Cancelled') return { cancelled: true };
+  if (hasReleasedGr(dn.goods_receipt)) throw new Error('Cannot cancel — goods already received. Use Reverse instead.');
+  const { error } = await getClient().from('delivery_notes')
+    .update({ status: 'Cancelled', updated_at: new Date().toISOString() }).eq('id', dnId);
+  if (error) throw error;
+  await logDnAudit(dnId, dn.order_id, 'cancelled', { note: reason, actor });
+  return { cancelled: true };
+}
+
+// Reverse a delivery note whose goods were already received: post compensating
+// inventory movements (via the goods-receiving service), cancel the receipt,
+// and mark the DN Reversed — with a full audit trail.
+export async function reverseDeliveryNote(dnId, { reason, actor } = {}) {
+  const dn = await getDeliveryNote(dnId);
+  if (dn.status === 'Reversed') return { reversed: true };
+  let reversal = null;
+  if (hasReleasedGr(dn.goods_receipt)) {
+    reversal = await reverseReleasedGoodsReceipt(dn.goods_receipt.id, { actor, reason });
+  }
+  const { error } = await getClient().from('delivery_notes')
+    .update({ status: 'Reversed', updated_at: new Date().toISOString() }).eq('id', dnId);
+  if (error) throw error;
+  await logDnAudit(dnId, dn.order_id, 'reversed', { note: reason, actor, detail: { grn: dn.goods_receipt ? dn.goods_receipt.grn_number : null, reversal } });
+  return { reversed: true };
 }

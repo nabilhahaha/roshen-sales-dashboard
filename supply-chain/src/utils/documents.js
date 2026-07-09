@@ -57,6 +57,28 @@ export function printPi(pi, orderNumber) {
     `<table><thead><tr><th>#</th><th>Code</th><th>Roshen</th><th>Description</th><th class="r">Cases</th><th class="r">Price/Case</th><th class="r">Taxable</th><th class="r">VAT%</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="6" class="r">TOTAL</td><td class="r">${money(pi.total_taxable)}</td><td class="r"></td><td class="r">${money(pi.grand_total)} ${esc(pi.currency || '')}</td></tr></tfoot></table>`));
 }
 
+// Printable Delivery Note. dn = getDeliveryNote() shape (items → batches).
+export function printDeliveryNote(dn) {
+  const rows = (dn.items || []).flatMap((it) => {
+    const batches = it.batches && it.batches.length ? it.batches : [{}];
+    return batches.map((b, i) => `<tr>
+      <td>${i === 0 ? esc(it.item_code || '') : ''}</td>
+      <td>${i === 0 ? esc(it.roshen_id || '') : ''}</td>
+      <td>${i === 0 ? esc(it.description || '') : ''}</td>
+      <td>${esc(b.batch_no || '—')}</td>
+      <td>${esc(b.manufacturing_date || '—')}</td>
+      <td>${esc(b.expiry_date || '—')}</td>
+      <td class="r">${qty(b.cases)}</td>
+      <td class="r">${b.boxes == null ? '' : qty(b.boxes)}</td>
+      <td class="r">${b.pieces == null ? '' : qty(b.pieces)}</td>
+      <td>${esc(b.qc_status || '')}</td></tr>`);
+  }).join('');
+  const totalCases = (dn.items || []).reduce((a, it) => a + (it.batches || []).reduce((x, b) => x + Number(b.cases || 0), 0), 0);
+  return openPrint(printDoc('Delivery Note ' + (dn.dn_number || ''),
+    kv({ 'DN Number': dn.dn_number, 'DN Date': dn.dn_date, Supplier: dn.supplier, 'PO Reference': dn.po_reference || '—', 'Linked Order': (dn.order && dn.order.order_number) || '—', Warehouse: (dn.order && dn.order.warehouse) || '—', Status: dn.status }),
+    `<table><thead><tr><th>Item Code</th><th>Roshen</th><th>Description</th><th>Batch/Lot</th><th>Mfg Date</th><th>Expiry</th><th class="r">Cases</th><th class="r">Boxes</th><th class="r">Pcs</th><th>QC</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="6" class="r">TOTAL CARTONS</td><td class="r">${qty(totalCases)}</td><td colspan="3"></td></tr></tfoot></table>`));
+}
+
 export function exportErrorReport(failed, filename) {
   const aoa = [['Excel Row', 'Type', 'Item Code', 'Roshen ID', 'Quantity', 'Reason']];
   (failed || []).forEach((f) => aoa.push([f.rowNo || '', f.type || '', f.code || '', f.roshen || '', f.qty || '', f.reason || '']));

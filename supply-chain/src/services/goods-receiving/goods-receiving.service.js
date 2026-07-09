@@ -7,7 +7,7 @@
 // on-hand balance from those movements. Below-minimum shelf-life accept/reject
 // decisions are written to the audit log.
 import { getClient, one } from '../supabase/client.js';
-import { lineKey as keyOf } from '../../utils/format.js';
+import { lineKey as keyOf, normRoshen } from '../../utils/format.js';
 import { deliveryNoteHasMatchedInvoice } from '../supplier-invoice/supplier-invoice.service.js';
 
 export async function listGoodsReceipts(orderId) {
@@ -139,6 +139,31 @@ export async function releaseGoodsReceipt(grId, opts = {}) {
   const pending = gr.batches.filter((b) => b.qc_result === 'Pending QC');
   if (pending.length) throw new Error(`${pending.length} batch(es) still Pending QC — decide Release/Reject for every batch before releasing.`);
 
+  // Over-delivery prevention: total received per line (already POSTED to
+  // inventory + this receipt) must not exceed the approved PO-revision quantity.
+  // "Already posted" is read from inventory_movements (net of any reversals) so
+  // the current, not-yet-released receipt is never double-counted.
+  const { data: mv } = await c.from('inventory_movements').select('roshen_id,item_code,cases_delta').eq('order_id', gr.order_id);
+  const postedByKey = {};
+  (mv || []).forEach((m) => { const k = keyOf(m.roshen_id, m.item_code); postedByKey[k] = (postedByKey[k] || 0) + Number(m.cases_delta || 0); });
+  const { data: ful } = await c.from('po_line_fulfillment').select('line_key,ordered_cases,description').eq('order_id', gr.order_id);
+  const orderedByKey = {};
+  (ful || []).forEach((r) => { orderedByKey[normRoshen(r.line_key)] = { ordered: Number(r.ordered_cases || 0), desc: r.description }; });
+  const addByKey = {}, labelByKey = {};
+  gr.batches.filter((b) => b.qc_result === 'Released').forEach((b) => {
+    const k = keyOf(b.roshen_id, b.item_code);
+    addByKey[k] = (addByKey[k] || 0) + Number(b.received_cases || 0);
+    labelByKey[k] = b.description || b.roshen_id || b.item_code;
+  });
+  for (const k of Object.keys(addByKey)) {
+    const po = orderedByKey[k];
+    if (!po) continue; // additional item not on the PO — disputed, not received here
+    const already = postedByKey[k] || 0;
+    if (already + addByKey[k] > po.ordered + 0.0001) {
+      throw new Error(`Cannot receive ${addByKey[k]} of ${po.desc || labelByKey[k]}: the approved PO allows ${po.ordered} and ${already} is already received. Over-delivery must be disputed, not received.`);
+    }
+  }
+
   const costByKey = opts.costByKey || {};
   const warehouse = opts.warehouse || gr.warehouse || (gr.order && gr.order.warehouse) || null;
 
@@ -174,4 +199,32 @@ export async function releaseGoodsReceipt(grId, opts = {}) {
     status: rej === total ? 'Cancelled' : 'Received', received_at: new Date().toISOString(), updated_at: new Date().toISOString(),
   }).eq('id', gr.delivery_note_id);
   return { status, released: rel, rejected: rej, total };
+}
+
+// Reverse a released goods receipt: post compensating (negative) inventory
+// movements for every released batch — the movement-based inventory view nets
+// them to zero — reset the DN batch QC, and cancel the receipt. Used by a DN
+// reversal; the movement ledger keeps a permanent audit of both postings.
+export async function reverseReleasedGoodsReceipt(grId, opts = {}) {
+  const c = getClient();
+  const gr = await getGoodsReceipt(grId);
+  if (!['Released', 'Partially Released'].includes(gr.status)) {
+    throw new Error('Only a released goods receipt can be reversed.');
+  }
+  const released = gr.batches.filter((b) => b.qc_result === 'Released' && Number(b.received_cases || 0) > 0);
+  for (const b of released) {
+    const { error: em } = await c.from('inventory_movements').insert({
+      order_id: gr.order_id, gr_id: gr.id, gr_batch_id: b.id, dn_batch_id: b.dn_batch_id, dn_id: gr.delivery_note_id,
+      item_code: b.item_code, roshen_id: b.roshen_id, description: b.description,
+      batch_no: b.batch_no, manufacturing_date: b.manufacturing_date, expiry_date: b.expiry_date,
+      warehouse: gr.warehouse, movement_type: 'REVERSAL', cases_delta: -Number(b.received_cases || 0),
+      reference: 'REVERSAL ' + (gr.grn_number || ''), created_by: opts.actor || null,
+    });
+    if (em) throw em;
+    if (b.dn_batch_id) await c.from('delivery_note_batches').update({ qc_status: 'Pending QC' }).eq('id', b.dn_batch_id);
+  }
+  await c.from('goods_receipts').update({
+    status: 'Cancelled', notes: opts.reason || 'Reversed', updated_at: new Date().toISOString(),
+  }).eq('id', grId);
+  return { reversed: true, batches: released.length, casesReversed: released.reduce((a, b) => a + Number(b.received_cases || 0), 0) };
 }
