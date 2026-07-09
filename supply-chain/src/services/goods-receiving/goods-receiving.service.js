@@ -9,6 +9,7 @@
 import { getClient, one } from '../supabase/client.js';
 import { lineKey as keyOf, normRoshen } from '../../utils/format.js';
 import { deliveryNoteHasMatchedInvoice } from '../supplier-invoice/supplier-invoice.service.js';
+import { createBatchesForGoodsReceipt, setBatchQcStatus, logBatchAudit } from '../batch/batch.service.js';
 
 export async function listGoodsReceipts(orderId) {
   let q = getClient().from('goods_receipts')
@@ -85,21 +86,31 @@ export async function createGoodsReceiptFromDeliveryNote(deliveryNoteId, opts = 
     });
   });
   if (batches.length) {
-    const { error: e2 } = await c.from('goods_receipt_batches').insert(batches);
+    const { data: inserted, error: e2 } = await c.from('goods_receipt_batches').insert(batches).select();
     if (e2) throw e2;
+    // Batch Master: every received physical batch becomes a first-class batch
+    // record automatically (the internal Batch ID all downstream modules use).
+    const { data: order } = await c.from('supply_orders').select('supplier').eq('id', dn.order_id).single();
+    await createBatchesForGoodsReceipt(
+      { ...grRow, supplier: order && order.supplier, receipt_date: grRow.receipt_date },
+      inserted || [], { actor: opts.createdBy });
   }
   await c.from('delivery_notes').update({ status: 'Receiving Review', updated_at: new Date().toISOString() }).eq('id', deliveryNoteId);
   return getGoodsReceipt(grRow.id);
 }
 
-// Update one GR batch's QC decision + quantities.
+// Update one GR batch's QC decision + quantities. QC is decided per BATCH —
+// the decision is mirrored onto the Batch Master record (audited).
 export async function setBatchQc(grBatchId, patch) {
   const upd = {};
   ['received_cases', 'damaged_cases', 'short_cases', 'rejected_cases', 'qc_result', 'qc_note'].forEach((k) => {
     if (patch[k] !== undefined) upd[k] = patch[k];
   });
-  const { error } = await getClient().from('goods_receipt_batches').update(upd).eq('id', grBatchId);
+  const { data: row, error } = await getClient().from('goods_receipt_batches').update(upd).eq('id', grBatchId).select('batch_id,qc_result').single();
   if (error) throw error;
+  if (row && row.batch_id && patch.qc_result !== undefined) {
+    try { await setBatchQcStatus(row.batch_id, patch.qc_result, { note: patch.qc_note, actor: patch.actor }); } catch (e) { /* mirror best-effort */ }
+  }
 }
 
 // Record a shelf-life receiving exception (audit).
@@ -171,10 +182,11 @@ export async function releaseGoodsReceipt(grId, opts = {}) {
   for (const b of released) {
     const key = keyOf(b.roshen_id, b.item_code);
     const cost = costByKey[key] != null ? costByKey[key] : null;
-    // movement — the single source of truth; the inventory view aggregates it
+    // movement — the single source of truth; the inventory view aggregates it.
+    // Carries the internal Batch ID so all stock is tracked by SKU + batch.
     const { error: em } = await c.from('inventory_movements').insert({
       order_id: gr.order_id, gr_id: gr.id, gr_batch_id: b.id, dn_batch_id: b.dn_batch_id,
-      dn_id: gr.delivery_note_id,
+      dn_id: gr.delivery_note_id, batch_id: b.batch_id || null,
       item_code: b.item_code, roshen_id: b.roshen_id, description: b.description,
       batch_no: b.batch_no, manufacturing_date: b.manufacturing_date, expiry_date: b.expiry_date,
       warehouse, movement_type: 'GR', cases_delta: Number(b.received_cases || 0),
@@ -182,6 +194,10 @@ export async function releaseGoodsReceipt(grId, opts = {}) {
     });
     if (em) throw em;
     if (b.dn_batch_id) await c.from('delivery_note_batches').update({ qc_status: 'Released' }).eq('id', b.dn_batch_id);
+    if (b.batch_id) {
+      await c.from('batch_master').update({ released_at: new Date().toISOString(), warehouse, updated_at: new Date().toISOString() }).eq('id', b.batch_id);
+      try { await logBatchAudit(b.batch_id, 'released', { detail: { cases: Number(b.received_cases || 0), grn: gr.grn_number, warehouse }, actor: opts.releasedBy }); } catch (e) { /* best-effort */ }
+    }
   }
   // rejected DN batches
   for (const b of gr.batches.filter((x) => x.qc_result === 'Rejected')) {
@@ -215,6 +231,7 @@ export async function reverseReleasedGoodsReceipt(grId, opts = {}) {
   for (const b of released) {
     const { error: em } = await c.from('inventory_movements').insert({
       order_id: gr.order_id, gr_id: gr.id, gr_batch_id: b.id, dn_batch_id: b.dn_batch_id, dn_id: gr.delivery_note_id,
+      batch_id: b.batch_id || null,
       item_code: b.item_code, roshen_id: b.roshen_id, description: b.description,
       batch_no: b.batch_no, manufacturing_date: b.manufacturing_date, expiry_date: b.expiry_date,
       warehouse: gr.warehouse, movement_type: 'REVERSAL', cases_delta: -Number(b.received_cases || 0),
@@ -222,6 +239,10 @@ export async function reverseReleasedGoodsReceipt(grId, opts = {}) {
     });
     if (em) throw em;
     if (b.dn_batch_id) await c.from('delivery_note_batches').update({ qc_status: 'Pending QC' }).eq('id', b.dn_batch_id);
+    if (b.batch_id) {
+      await c.from('batch_master').update({ qc_status: 'Pending QC', released_at: null, updated_at: new Date().toISOString() }).eq('id', b.batch_id);
+      try { await logBatchAudit(b.batch_id, 'reversed', { detail: { cases: -Number(b.received_cases || 0), grn: gr.grn_number }, note: opts.reason, actor: opts.actor }); } catch (e) { /* best-effort */ }
+    }
   }
   await c.from('goods_receipts').update({
     status: 'Cancelled', notes: opts.reason || 'Reversed', updated_at: new Date().toISOString(),

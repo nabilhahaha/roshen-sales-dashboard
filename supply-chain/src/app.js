@@ -17,6 +17,7 @@ import * as supplierInvoices from './pages/supplier-invoices/supplier-invoices.p
 import * as deliveryNotes from './pages/delivery-notes/delivery-notes.page.js';
 import * as goodsReceiving from './pages/goods-receiving/goods-receiving.page.js';
 import * as inventory from './pages/inventory/inventory.page.js';
+import * as batchTracking from './pages/batch-tracking/batch-tracking.page.js';
 import * as placeholder from './pages/placeholder.page.js';
 
 const PAGES = {
@@ -33,6 +34,7 @@ const PAGES = {
   'delivery-notes': deliveryNotes,
   'goods-receiving': goodsReceiving,
   inventory,
+  'batch-tracking': batchTracking,
 };
 
 // routes reachable by the router but not shown as sidebar items
