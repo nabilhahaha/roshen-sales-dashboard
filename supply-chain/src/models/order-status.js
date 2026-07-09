@@ -26,6 +26,12 @@ export const ORDER_STATUS_VARIANT = {
   'Revision Applied': 'pi',
   'PI Approved': 'approved',
   'Ready for Shipment': 'confirmed',
+  'Partially Delivered': 'pi',
+  'Fully Delivered': 'pi',
+  'Partially Received': 'pi',
+  'Fully Received': 'confirmed',
+  'Invoice Matched': 'approved',
+  'Financially Closed': 'confirmed',
   Closed: 'closed',
 };
 

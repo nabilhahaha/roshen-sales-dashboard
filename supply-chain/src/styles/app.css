@@ -257,3 +257,12 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:-apple-syst
 .erp-rev-h{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:13px;color:var(--text-primary)}
 .erp-rev-changes{display:flex;flex-direction:column;gap:4px;margin-top:6px}
 .erp-rev-change{font-size:12.5px;color:var(--text-secondary);padding:5px 8px;border-radius:7px;background:var(--bg-input);overflow:hidden}
+
+/* ---- Delivery Note / Receiving / Inventory ---- */
+.sc-row-link{cursor:pointer}
+.sc-row-link:hover td{background:var(--bg-card-hover)}
+.sc-row-head td{background:var(--bg-card-hover);border-top:2px solid var(--border)}
+.sc-input.sm,.sc-select.sm{padding:5px 8px;font-size:12px;border-radius:7px}
+.sc-input.num{text-align:right}
+.sc-shelf{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11.5px;font-weight:700;white-space:nowrap;
+  color:var(--sl);background:color-mix(in srgb,var(--sl) 16%,transparent);border:1px solid color-mix(in srgb,var(--sl) 45%,transparent)}
