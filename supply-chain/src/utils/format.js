@@ -20,3 +20,17 @@ export const today = () => {
 
 export const approxEq = (a, b, eps = 0.01) =>
   a != null && b != null && Math.abs(Number(a) - Number(b)) <= eps;
+
+// Loose number parse (handles "1,234.50", "1.234,50", "1 200", currency text).
+export function parseNumber(v) {
+  if (v == null) return null;
+  if (typeof v === 'number') return v;
+  let s = String(v).replace(/\s/g, '').trim();
+  if (!s) return null;
+  s = s.replace(/[^0-9.,\-]/g, '');
+  const hasComma = s.includes(','), hasDot = s.includes('.');
+  if (hasComma && hasDot) s = s.replace(/\./g, '').replace(',', '.');
+  else if (hasComma) s = s.replace(',', '.');
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
