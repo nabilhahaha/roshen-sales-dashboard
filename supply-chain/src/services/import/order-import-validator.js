@@ -1,78 +1,92 @@
 // Import validator — resolves mapped rows against the SKU Master, applies the
-// business rules, and produces order lines + a stats/report object. Pure.
+// business rules, merges duplicates, and produces order lines + a report. Pure.
 //
-// Rules:
-//  - Item Code OR Roshen ID must exist in SKU Master (else the row is Unknown).
-//  - Quantity is required and must be > 0.
-//  - Duplicate SKUs are merged by summing quantities.
-//  - Completely blank rows are ignored (already dropped by the parser).
+// Resolution modes (auto-detected per row):
+//  - Item Code and/or Roshen ID. Priority: Item Code, then Roshen ID.
+//  - If BOTH are present and both resolve, they must refer to the SAME SKU,
+//    otherwise the row is an error (conflict).
+//
+// Rules: quantity required and > 0; duplicate SKUs merged by summing;
+// blank rows ignored; unknown (no SKU) and error (conflict / bad qty) rows are
+// reported separately. O(n) with hash lookups → handles thousands of rows.
 import { parseNumber } from '../../utils/format.js';
-import { indexByCode, indexByRoshen } from '../sku/sku.service.js';
 
-// rows: [{ [colIdx]: value }] ; mapByIdx: { colIdx: erpField } ; skus: SKU list
 export function validateImport(rows, mapByIdx, skus) {
-  const byCode = {};
-  indexBy(indexByCode(skus), byCode); // lowercased item_code index
-  const byRoshen = indexByRoshen(skus);
+  const byCode = {}, byRoshen = {};
+  skus.forEach((s) => {
+    byCode[String(s.item_code).trim().toLowerCase()] = s;
+    if (s.roshen_id) byRoshen[String(s.roshen_id).trim()] = s;
+  });
 
   const fieldToIdx = {};
   Object.entries(mapByIdx).forEach(([idx, field]) => { if (field && field !== 'ignore') fieldToIdx[field] = Number(idx); });
-  const get = (row, field) => (fieldToIdx[field] != null ? (row[fieldToIdx[field]] ?? '') : '');
+  const has = (field) => fieldToIdx[field] != null;
+  const get = (row, field) => (has(field) ? String(row[fieldToIdx[field]] ?? '').trim() : '');
 
-  const merged = {};       // keyed by canonical SKU item_code
+  const merged = {};        // canonical item_code -> line (with .merges[])
   const unknown = [];
-  const invalid = [];
+  const errors = [];
   let importedRows = 0;
   let duplicatesMerged = 0;
 
   rows.forEach((row) => {
-    const rawCode = String(get(row, 'item_code') || '').trim();
-    const rawRoshen = String(get(row, 'roshen_id') || '').trim();
-    const rawQty = String(get(row, 'quantity') || '').trim();
+    const rowNo = row.__row || '';
+    const rawCode = get(row, 'item_code');
+    const rawRoshen = get(row, 'roshen_id');
+    const rawQty = get(row, 'quantity');
     if (!rawCode && !rawRoshen && !rawQty) return; // blank
     importedRows++;
 
-    let sku = rawCode ? byCode[rawCode.toLowerCase()] : null;
-    if (!sku && rawRoshen) sku = byRoshen[rawRoshen];
-    if (!sku) { unknown.push({ code: rawCode || '—', roshen: rawRoshen || '—', qty: rawQty || '—', reason: 'Not found in SKU Master' }); return; }
+    const skuByCode = rawCode ? byCode[rawCode.toLowerCase()] : null;
+    const skuByRoshen = rawRoshen ? byRoshen[rawRoshen] : null;
+
+    // conflict: both provided, both resolve, but to different SKUs
+    if (skuByCode && skuByRoshen && skuByCode.item_code !== skuByRoshen.item_code) {
+      errors.push({ rowNo, code: rawCode, roshen: rawRoshen, qty: rawQty || '—', reason: `Item Code (${skuByCode.item_code}) and Roshen ID (${rawRoshen}) refer to different SKUs` });
+      return;
+    }
+    const sku = skuByCode || skuByRoshen; // priority: Item Code, then Roshen ID
+    if (!sku) {
+      const label = rawCode || rawRoshen ? 'Not found in SKU Master' : 'No Item Code or Roshen ID';
+      unknown.push({ rowNo, code: rawCode || '—', roshen: rawRoshen || '—', qty: rawQty || '—', reason: label });
+      return;
+    }
 
     const qty = parseNumber(rawQty);
-    if (qty == null) { invalid.push({ code: sku.item_code, qty: rawQty || '—', reason: 'Quantity is required' }); return; }
-    if (!(qty > 0)) { invalid.push({ code: sku.item_code, qty: rawQty, reason: 'Quantity must be greater than zero' }); return; }
+    if (qty == null) { errors.push({ rowNo, code: sku.item_code, roshen: sku.roshen_id || '—', qty: rawQty || '—', reason: 'Quantity is required' }); return; }
+    if (!(qty > 0)) { errors.push({ rowNo, code: sku.item_code, roshen: sku.roshen_id || '—', qty: rawQty, reason: 'Quantity must be greater than zero' }); return; }
 
     const key = sku.item_code;
-    if (merged[key]) { merged[key].ordered_cases += qty; duplicatesMerged++; }
+    if (merged[key]) { merged[key].ordered_cases += qty; merged[key].merges.push(qty); duplicatesMerged++; }
     else {
-      const mappedDesc = String(get(row, 'description') || '').trim();
+      const mappedDesc = get(row, 'description');
       merged[key] = {
         item_code: sku.item_code,
         roshen_id: sku.roshen_id,
         item_description: sku.item_description || mappedDesc,
         price_case: Number(sku.price_case),
         ordered_cases: qty,
+        merges: [qty],
       };
     }
   });
 
   const lines = Object.values(merged);
   const grandTotal = lines.reduce((a, l) => a + l.ordered_cases * l.price_case, 0);
+  const failed = unknown.map((u) => ({ ...u, type: 'Unknown' })).concat(errors.map((e) => ({ ...e, type: 'Error' })));
+
   return {
     lines,
     unknown,
-    invalid,
+    errors,
+    failed,
     stats: {
       importedRows,
       matched: lines.length,
-      unknown: unknown.length,
-      invalid: invalid.length,
       duplicatesMerged,
+      unknown: unknown.length,
+      errors: errors.length,
       grandTotal,
     },
   };
-}
-
-// build a lowercased item_code index from the byCode(exact) index
-function indexBy(exactByCode, out) {
-  Object.values(exactByCode).forEach((s) => { out[String(s.item_code).trim().toLowerCase()] = s; });
-  return out;
 }

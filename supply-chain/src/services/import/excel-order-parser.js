@@ -52,7 +52,7 @@ export function parseOrderWorkbook(arrayBuffer, XLSX) {
   for (let r = headerRowIndex + 1; r < grid.length; r++) {
     const row = grid[r] || [];
     if (row.every(isBlank)) continue; // ignore completely blank rows
-    const obj = {};
+    const obj = { __row: r + 1 }; // 1-based Excel row number, for error reporting
     columns.forEach((c) => { const v = row[c.idx]; obj[c.idx] = isBlank(v) ? '' : String(v).trim(); });
     rows.push(obj);
   }
