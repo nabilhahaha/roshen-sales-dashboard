@@ -49,13 +49,30 @@ async function poItemIndex(orderId) {
 // dn: { orderId, header:{dn_number,dn_date,supplier,po_reference,currency,total_cartons,notes,source_filename,header_extra},
 //       lines:[{item_code,roshen_id,description,uom,barcode,line_key, batches:[{batch_no,manufacturing_date,expiry_date,cases,boxes,pieces,belowMinimum}]}],
 //       createdBy }
+// Find an existing DN header for this order + number (idempotency key).
+async function findDeliveryNoteRow(orderId, dnNumber) {
+  if (!dnNumber) return null;
+  const { data, error } = await getClient().from('delivery_notes')
+    .select('*').eq('order_id', orderId).eq('dn_number', dnNumber).limit(1);
+  if (error) throw error;
+  return (data && data[0]) || null;
+}
+
 export async function createDeliveryNote(dn) {
   const c = getClient();
+  const dnNumber = dn.header.dn_number || ('DN-' + Date.now());
+
+  // Idempotency: a delivery note is unique per (order, dn_number). If it was
+  // already created (e.g. a double submit), return the existing record instead
+  // of inserting again — never duplicate the lines/batches.
+  const already = await findDeliveryNoteRow(dn.orderId, dnNumber);
+  if (already) return already;
+
   const poIdx = await poItemIndex(dn.orderId);
 
-  const { data: dnRow, error: e1 } = await c.from('delivery_notes').insert({
+  const insertHeader = () => c.from('delivery_notes').insert({
     order_id: dn.orderId,
-    dn_number: dn.header.dn_number || ('DN-' + Date.now()),
+    dn_number: dnNumber,
     dn_date: dn.header.dn_date || null,
     supplier: dn.header.supplier || null,
     po_reference: dn.header.po_reference || null,
@@ -67,7 +84,16 @@ export async function createDeliveryNote(dn) {
     status: 'Imported',
     created_by: dn.createdBy || null,
   }).select().single();
-  if (e1) throw e1;
+
+  let { data: dnRow, error: e1 } = await insertHeader();
+  if (e1) {
+    // lost a create race → the other insert won; return that record
+    if (e1.code === '23505') {
+      const winner = await findDeliveryNoteRow(dn.orderId, dnNumber);
+      if (winner) return winner;
+    }
+    throw e1;
+  }
 
   for (const line of dn.lines) {
     const lk = line.line_key || keyOf(line.roshen_id, line.item_code);

@@ -178,7 +178,12 @@ export async function startDnImport(root, ctx) {
     wire(root, { back: mapStep, create: doCreate });
   }
 
+  let creating = false;
   async function doCreate() {
+    if (creating) return;                    // guard against double submit
+    creating = true;
+    const btn = root.querySelector('[data-act="create"]');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Creating…'; }
     const b = state.built; const h = state.parsed.header;
     try {
       const dn = await createDeliveryNote({
@@ -188,7 +193,11 @@ export async function startDnImport(root, ctx) {
       });
       toast(`Delivery note ${dn.dn_number} created`, 'ok');
       ctx.navigate('delivery-notes', { view: 'detail', dnId: dn.id });
-    } catch (e) { toast('Create failed: ' + (e.message || e), 'err'); }
+    } catch (e) {
+      toast('Create failed: ' + (e.message || e), 'err');
+      creating = false;                      // allow retry on failure
+      if (btn) { btn.disabled = false; btn.textContent = '✅ Create Delivery Note'; }
+    }
   }
 
   chooseOrder();
