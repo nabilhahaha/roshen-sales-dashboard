@@ -10,6 +10,7 @@ import {
 import { validateImport } from '../../../services/import/order-import-validator.js';
 import { listSkus } from '../../../services/sku/sku.service.js';
 import * as Orders from '../../../services/purchase-orders/orders.service.js';
+import { exportErrorReport } from '../../../utils/documents.js';
 import { renderWizard } from './mapping-wizard.view.js';
 import { renderPreview } from './import-preview.view.js';
 
@@ -58,17 +59,23 @@ export async function startImportFlow(root, ctx, arrayBuffer, filename) {
       handlers: {
         back: showWizard,
         cancel: () => ctx.navigate('order-history'),
-        confirm: () => createDraft(result),
+        downloadErrors: () => {
+          if (!result.failed.length) { toast('No failed rows to export', 'info'); return; }
+          exportErrorReport(result.failed, filename);
+          toast('Error report downloaded', 'ok');
+        },
+        confirm: (editedLines) => createDraft(editedLines),
       },
     });
   }
 
-  async function createDraft(result) {
-    if (!result.lines.length) { toast('No valid lines to import', 'err'); return; }
+  // `lines` are the (possibly edited) preview lines.
+  async function createDraft(lines) {
+    if (!lines.length) { toast('No valid lines to import', 'err'); return; }
     try {
       // Same services as manual creation — the order is a normal Draft.
       const order = await Orders.createOrder({ order_date: today(), supplier: 'Roshen', notes: 'Imported from ' + (filename || 'Excel') });
-      await Orders.replaceItems(order.id, result.lines.map((l) => ({
+      await Orders.replaceItems(order.id, lines.map((l) => ({
         item_code: l.item_code, roshen_id: l.roshen_id, item_description: l.item_description,
         ordered_cases: l.ordered_cases, price_case: l.price_case,
       })));

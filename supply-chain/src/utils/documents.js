@@ -57,6 +57,13 @@ export function printPi(pi, orderNumber) {
     `<table><thead><tr><th>#</th><th>Code</th><th>Roshen</th><th>Description</th><th class="r">Cases</th><th class="r">Price/Case</th><th class="r">Taxable</th><th class="r">VAT%</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="6" class="r">TOTAL</td><td class="r">${money(pi.total_taxable)}</td><td class="r"></td><td class="r">${money(pi.grand_total)} ${esc(pi.currency || '')}</td></tr></tfoot></table>`));
 }
 
+export function exportErrorReport(failed, filename) {
+  const aoa = [['Excel Row', 'Type', 'Item Code', 'Roshen ID', 'Quantity', 'Reason']];
+  (failed || []).forEach((f) => aoa.push([f.rowNo || '', f.type || '', f.code || '', f.roshen || '', f.qty || '', f.reason || '']));
+  const base = (filename || 'import').replace(/\.[^.]+$/, '').replace(/[^\w.-]/g, '_');
+  writeXlsx(aoa, 'Import_Errors_' + base + '.xlsx', 'Errors');
+}
+
 export function exportPiExcel(pi, orderNumber) {
   const its = (pi.proforma_invoice_items || []).slice().sort((a, b) => (a.line_no || 0) - (b.line_no || 0));
   const aoa = [['Proforma Invoice', pi.pi_number || ''], ['PI Date', pi.pi_date || ''], ['Supplier', pi.supplier || ''], ['Customer', pi.customer || ''], ['Currency', pi.currency || ''], ['Linked Order', orderNumber || ''], ['Status', pi.status], [],
