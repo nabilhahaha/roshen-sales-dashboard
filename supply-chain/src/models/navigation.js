@@ -7,6 +7,11 @@
 // inside Purchase Orders) and deep links — it just never appears as a menu
 // item. Nothing is deleted.
 export const NAV = [
+  { group: 'Overview', items: [
+    // Executive Procurement Dashboard — management overview; the working
+    // landing page stays Purchase Orders.
+    { id: 'dashboard', icon: '📊', label: 'Dashboard' },
+  ] },
   { group: 'Procurement', items: [
     { id: 'sku-master', icon: '🧾', label: 'SKU Master' },
     { id: 'purchase-orders', icon: '🛒', label: 'Purchase Orders' },
@@ -17,8 +22,10 @@ export const NAV = [
   ] },
   { group: 'Logistics', items: [
     { id: 'delivery-notes', icon: '🚚', label: 'Delivery Notes' },
+    // live shipment stage (Ready for Delivery / In Transit / ETA) — part of
+    // the warehouse workflow, so it stays visible with a real board.
+    { id: 'shipment', icon: '🛫', label: 'Shipments' },
     { id: 'goods-receiving', icon: '📦', label: 'Warehouse Receiving' },
-    { id: 'shipment', icon: '🛫', label: 'Shipment', hidden: true },
     { id: 'inventory', icon: '🏬', label: 'Inventory', hidden: true },
     { id: 'batch-tracking', icon: '🔖', label: 'Batch Tracking', hidden: true },
     { id: 'expiry', icon: '⏳', label: 'Expiry Management', hidden: true },
@@ -32,7 +39,6 @@ export const NAV = [
     { id: 'order-history', icon: '📋', label: 'Purchase History' },
   ] },
   { group: 'System', items: [
-    { id: 'dashboard', icon: '📊', label: 'Dashboard', hidden: true },
     { id: 'workflow', icon: '🔀', label: 'Workflow', hidden: true },
     { id: 'reports', icon: '📈', label: 'Reports', hidden: true },
     // Settings lives under the user/profile menu in the top bar, not the sidebar.
