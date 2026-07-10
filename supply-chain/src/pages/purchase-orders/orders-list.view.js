@@ -26,8 +26,8 @@ export async function renderOrdersList(root, ctx, variant = 'active') {
       <button class="sc-btn ghost sm" data-act="refresh">↻</button>
     </div>
     <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">${history
-      ? 'Completed purchase orders — fully received and closed. Active orders live under Purchase Orders.'
-      : 'Purchase orders currently in the workflow. Import the supplier’s PI Excel to create one — completed orders move to Purchase History.'}</p>
+      ? 'The archive: fully Delivered purchase orders and manually Closed ones (with their close reason). Active orders live under Purchase Orders / Open Orders.'
+      : 'Purchase orders currently in the workflow. Import the supplier’s PI Excel to create one — Delivered and Closed orders move to Purchase History.'}</p>
     <div data-el="body">${loading()}</div>
   </div>`);
 
@@ -59,7 +59,7 @@ export async function renderOrdersList(root, ctx, variant = 'active') {
         <td>${esc(o.order_date || '')}</td>
         <td>${esc(o.supplier || '')}</td>
         <td>${esc(o.warehouse || '—')}</td>
-        <td>${orderBadge(o.status)}</td>
+        <td>${orderBadge(o)}${history && o.close_reason ? `<div style="font-size:10.5px;color:var(--text-muted);margin-top:2px" title="${esc(o.close_comments || '')}">${esc(o.close_reason)}${o.closed_by ? ' · ' + esc(o.closed_by) : ''}</div>` : ''}</td>
         <td class="num">${its.length}</td>
         <td class="num">${num(cases)}</td>
         <td class="num">${money(value)}</td>

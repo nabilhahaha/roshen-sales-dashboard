@@ -3,6 +3,9 @@
 // never applies automatically.
 import { getClient } from '../supabase/client.js';
 import { lineKey as keyOf } from '../../utils/format.js';
+import {
+  DN_SHIPPED_STATUSES, DN_DELIVERED_STATUSES, orderBusinessStatus, lineBusinessStatus,
+} from '../../models/business-status.js';
 
 export async function getFulfillment(orderId) {
   const { data, error } = await getClient().from('po_line_fulfillment')
@@ -213,5 +216,100 @@ export async function listOpenOrders() {
     return { ...o, ordered_cases: +a.ordered.toFixed(2), delivered_cases: +a.delivered.toFixed(2),
       received_cases: +a.received.toFixed(2), remaining_cases: remaining, pct,
       next_eta: eta[o.id] || null };
+  });
+}
+
+// ---- Open Orders operational overview ------------------------------------
+// One call powering the Open Orders tracking screen: every active PO with its
+// business status (models/business-status.js — the single source of truth),
+// quantity flow (ordered → shipped → delivered → remaining), progress, last
+// activity, next expected arrival and its related delivery notes / supplier
+// invoices. "Shipped" counts the cases on CONFIRMED delivery notes
+// (dispatched or later, including the already-received ones); "delivered"
+// counts what actually posted to the warehouse.
+export async function openOrdersOverview() {
+  const c = getClient();
+  const { data: orders, error } = await c.from('supply_orders')
+    .select('id,order_number,order_date,supplier,warehouse,expected_arrival,status,close_reason,updated_at,created_at')
+    .not('status', 'in', '("' + CLOSED_STATUSES.join('","') + '")')
+    .neq('status', 'Draft')
+    .order('order_date', { ascending: false });
+  if (error) throw error;
+  if (!orders || !orders.length) return [];
+  const ids = orders.map((o) => o.id);
+
+  const [{ data: ful }, { data: dns }, { data: sis }] = await Promise.all([
+    c.from('po_line_fulfillment').select('*').in('order_id', ids).order('line_key'),
+    c.from('delivery_notes')
+      .select('id,order_id,dn_number,status,dn_date,expected_delivery_at,updated_at, delivery_note_items(po_item_id,item_code,roshen_id, delivery_note_batches(cases))')
+      .in('order_id', ids).not('status', 'in', '("Cancelled","Reversed")'),
+    c.from('supplier_invoices').select('id,order_id,invoice_number,status,updated_at,created_at')
+      .in('order_id', ids).neq('status', 'Cancelled'),
+  ]);
+
+  // shipped cases per order + per PO line (confirmed DNs only)
+  const CONFIRMED = [...DN_SHIPPED_STATUSES, ...DN_DELIVERED_STATUSES];
+  const shippedByLine = {}, dnsByOrder = {}, lastAct = {};
+  (dns || []).forEach((d) => {
+    (dnsByOrder[d.order_id] = dnsByOrder[d.order_id] || []).push(d);
+    const t = d.updated_at || d.dn_date;
+    if (t && (!lastAct[d.order_id] || t > lastAct[d.order_id])) lastAct[d.order_id] = t;
+    if (!CONFIRMED.includes(d.status)) return;
+    (d.delivery_note_items || []).forEach((it) => {
+      const cases = (it.delivery_note_batches || []).reduce((a, b) => a + Number(b.cases || 0), 0);
+      const k = d.order_id + '|' + keyOf(it.roshen_id, it.item_code);
+      shippedByLine[k] = (shippedByLine[k] || 0) + cases;
+    });
+  });
+  const sisByOrder = {};
+  (sis || []).forEach((s) => {
+    (sisByOrder[s.order_id] = sisByOrder[s.order_id] || []).push(s);
+    const t = s.updated_at || s.created_at;
+    if (t && (!lastAct[s.order_id] || t > lastAct[s.order_id])) lastAct[s.order_id] = t;
+  });
+
+  const linesByOrder = {};
+  (ful || []).forEach((r) => {
+    const k = r.order_id + '|' + (r.po_item_id != null ? 'po' + r.po_item_id : keyOf(r.roshen_id, r.item_code));
+    const line = {
+      ...r,
+      ordered: Number(r.ordered_cases || 0),
+      shipped: Math.min(Number(r.ordered_cases || 0), shippedByLine[k] || 0),
+      delivered: Number(r.received_cases || 0),
+    };
+    line.remaining = +Math.max(0, line.ordered - line.delivered).toFixed(2);
+    (linesByOrder[r.order_id] = linesByOrder[r.order_id] || []).push(line);
+  });
+
+  return orders.map((o) => {
+    const lines = (linesByOrder[o.id] || []).map((l) => ({
+      ...l, business_status: lineBusinessStatus(l, { closed: false }),
+    }));
+    const agg = lines.reduce((a, l) => ({
+      ordered: a.ordered + l.ordered, shipped: a.shipped + l.shipped, delivered: a.delivered + l.delivered,
+    }), { ordered: 0, shipped: 0, delivered: 0 });
+    const remaining = +Math.max(0, agg.ordered - agg.delivered).toFixed(2);
+    const pct = agg.ordered > 0 ? Math.min(100, Math.round((agg.delivered / agg.ordered) * 100)) : 0;
+    const orderDns = (dnsByOrder[o.id] || []).sort((a, b) => String(a.dn_number).localeCompare(String(b.dn_number)));
+    let eta = null;
+    orderDns.forEach((d) => {
+      if (DN_DELIVERED_STATUSES.includes(d.status) || !d.expected_delivery_at) return;
+      if (!eta || d.expected_delivery_at < eta) eta = d.expected_delivery_at;
+    });
+    const t = lastAct[o.id] || o.updated_at || o.created_at;
+    return {
+      ...o,
+      business_status: orderBusinessStatus(o, agg),
+      lines,
+      ordered_cases: +agg.ordered.toFixed(2),
+      shipped_cases: +agg.shipped.toFixed(2),
+      delivered_cases: +agg.delivered.toFixed(2),
+      remaining_cases: remaining,
+      pct,
+      next_eta: eta,
+      last_activity: t ? String(t).slice(0, 16).replace('T', ' ') : null,
+      dns: orderDns.map((d) => ({ id: d.id, dn_number: d.dn_number, status: d.status })),
+      sis: (sisByOrder[o.id] || []).map((s) => ({ id: s.id, invoice_number: s.invoice_number, status: s.status })),
+    };
   });
 }

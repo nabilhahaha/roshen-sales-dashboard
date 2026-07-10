@@ -92,6 +92,17 @@ export async function createDeliveryNote(dn) {
   const c = getClient();
   const dnNumber = dn.header.dn_number || ('DN-' + Date.now());
 
+  // A MANUALLY closed purchase order (close_reason set) can never take new
+  // delivery notes. An auto-closed one (fully received) still can: a surprise
+  // extra delivery is recorded as a disputed over-delivery — the existing
+  // rule — and remains hard-blocked from ever being received.
+  {
+    const { data: ord } = await c.from('supply_orders').select('status,close_reason').eq('id', dn.orderId).single();
+    if (ord && ord.close_reason && ['Closed', 'Financially Closed'].includes(ord.status)) {
+      throw new Error(`This purchase order was closed (${ord.close_reason}) — no new delivery notes can be created against it.`);
+    }
+  }
+
   // Idempotency: a delivery note is unique per (order, dn_number). If it was
   // already created (e.g. a double submit), return the existing record instead
   // of inserting again — never duplicate the lines/batches.
@@ -223,7 +234,7 @@ async function insertLinesAndBatches(dnId, poIdx, lines) {
 
 export async function listDeliveryNotes(orderId) {
   let q = getClient().from('delivery_notes')
-    .select('*, supply_orders(order_number,status), supplier_invoices(id,invoice_number,status), goods_receipts(id,status)')
+    .select('*, supply_orders(order_number,status,close_reason), supplier_invoices(id,invoice_number,status), goods_receipts(id,status)')
     .order('imported_at', { ascending: false });
   if (orderId) q = q.eq('order_id', orderId);
   const { data, error } = await q;
@@ -238,7 +249,7 @@ export async function listDeliveryNotes(orderId) {
 
 export async function getDeliveryNote(id) {
   const { data, error } = await getClient().from('delivery_notes')
-    .select('*, supply_orders(id,order_number,status,warehouse), ' +
+    .select('*, supply_orders(id,order_number,status,close_reason,warehouse), ' +
             'delivery_note_items(*, delivery_note_batches(*)), ' +
             'supplier_invoices(*, supplier_invoice_items(*)), ' +
             'goods_receipts(*, goods_receipt_batches(*))')

@@ -45,7 +45,7 @@ export async function getInvoiceDocument(invoiceId) {
 
 export async function listInvoices(orderId) {
   let q = getClient().from('supplier_invoices')
-    .select('*, delivery_notes(dn_number), supply_orders(order_number,status)').order('created_at', { ascending: false });
+    .select('*, delivery_notes(dn_number,status), supply_orders(order_number,status,close_reason)').order('created_at', { ascending: false });
   if (orderId) q = q.eq('order_id', orderId);
   const { data, error } = await q;
   if (error) throw error;
@@ -54,7 +54,7 @@ export async function listInvoices(orderId) {
 
 export async function getInvoice(id) {
   const { data, error } = await getClient().from('supplier_invoices')
-    .select('*, supplier_invoice_items(*), delivery_notes(dn_number), supply_orders(id,order_number,status)').eq('id', id).single();
+    .select('*, supplier_invoice_items(*), delivery_notes(dn_number,status), supply_orders(id,order_number,status,close_reason)').eq('id', id).single();
   if (error) throw error;
   return {
     ...data,
@@ -97,11 +97,13 @@ const refMatches = docRefMatches;   // one canonical rule everywhere
 export async function resolveInvoiceReferences({ po_reference, dn_reference } = {}) {
   const c = getClient();
   let order = null, dn = null;
+  // a manually closed PO (close_reason set) takes no new invoice links
+  const manuallyClosed = (o) => o && o.close_reason && ['Closed', 'Financially Closed'].includes(o.status);
   if (po_reference) {
     const { data, error } = await c.from('supply_orders')
-      .select('id,order_number,supplier,status').ilike('order_number', String(po_reference).trim() + '%');
+      .select('id,order_number,supplier,status,close_reason').ilike('order_number', String(po_reference).trim() + '%');
     if (error) throw error;
-    order = (data || []).find((o) => refMatches(o.order_number, po_reference)) || null;
+    order = (data || []).find((o) => refMatches(o.order_number, po_reference) && !manuallyClosed(o)) || null;
   }
   if (dn_reference) {
     let q = c.from('delivery_notes').select('id,dn_number,order_id,status')
@@ -112,8 +114,8 @@ export async function resolveInvoiceReferences({ po_reference, dn_reference } = 
     if (error) throw error;
     dn = (data || []).find((d) => refMatches(d.dn_number, dn_reference)) || null;
     if (dn && !order) {
-      const { data: o } = await c.from('supply_orders').select('id,order_number,supplier,status').eq('id', dn.order_id).single();
-      order = o || null;
+      const { data: o } = await c.from('supply_orders').select('id,order_number,supplier,status,close_reason').eq('id', dn.order_id).single();
+      if (manuallyClosed(o)) { dn = null; } else { order = o || null; }
     }
   }
   return { order, dn };
@@ -154,6 +156,13 @@ export async function linkPendingInvoice(invoiceId, { actor } = {}) {
 //        extracted, validation, status, createdBy }
 export async function createSupplierInvoiceFromUpload(inv) {
   const c = getClient();
+  // a manually closed PO takes no new supplier invoices
+  if (inv.orderId) {
+    const { data: ord } = await c.from('supply_orders').select('status,close_reason').eq('id', inv.orderId).single();
+    if (ord && ord.close_reason && ['Closed', 'Financially Closed'].includes(ord.status)) {
+      throw new Error(`This purchase order was closed (${ord.close_reason}) — no new supplier invoices can be linked to it.`);
+    }
+  }
   const lines = inv.lines || [];
   const total_taxable = inv.totals && inv.totals.taxable != null
     ? Number(inv.totals.taxable) : +lines.reduce((a, l) => a + Number(l.taxable_amount || 0), 0).toFixed(2);

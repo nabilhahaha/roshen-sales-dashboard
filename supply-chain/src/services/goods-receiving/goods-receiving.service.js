@@ -290,7 +290,9 @@ export async function autoReleaseIfClean(grId, opts = {}) {
 async function syncOrderReceivingStatus(orderId) {
   const c = getClient();
   const { data: o } = await c.from('supply_orders').select('status').eq('id', orderId).single();
-  if (!o || ['Invoice Matched', 'Financially Closed'].includes(o.status)) return;
+  // 'Closed' is terminal too: auto-close is idempotent, and a MANUAL close
+  // (with a close reason) must never be reopened by an in-flight receipt.
+  if (!o || ['Invoice Matched', 'Financially Closed', 'Closed'].includes(o.status)) return;
   const { data: rows } = await c.from('po_line_fulfillment').select('ordered_cases,delivered_cases,received_cases').eq('order_id', orderId);
   if (!rows || !rows.length) return;
   let ordered = 0, delivered = 0, received = 0;

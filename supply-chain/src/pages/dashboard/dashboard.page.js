@@ -6,6 +6,7 @@ import { mount, delegate } from '../../utils/dom.js';
 import { esc, qty, num } from '../../utils/format.js';
 import { loading, emptyState, tableWrap } from '../../components/table/table.js';
 import { statusBadge } from '../../components/table/badges.js';
+import { orderBadge } from '../../components/table/table.js';
 import { listOpenOrders } from '../../services/fulfillment/fulfillment.service.js';
 import { listDeliveryNotes } from '../../services/delivery-note/delivery-note.service.js';
 import { listInvoices } from '../../services/supplier-invoice/supplier-invoice.service.js';
@@ -78,7 +79,7 @@ export async function render(root, ctx) {
           ${open.slice(0, 8).map((o) => `<tr class="sc-row-link" data-act="openpo" data-id="${o.id}">
             <td class="mono"><b>${esc(o.order_number)}</b></td><td>${esc(o.supplier || '')}</td>
             <td style="font-size:11.5px">${o.next_eta ? esc(String(o.next_eta).slice(0, 16).replace('T', ' ')) : '—'}</td>
-            <td class="num"><b>${qty(o.remaining_cases)}</b></td><td>${statusBadge(o.status)}</td></tr>`).join('')}
+            <td class="num"><b>${qty(o.remaining_cases)}</b></td><td>${orderBadge(o)}</td></tr>`).join('')}
         </tbody></table>`)
         : '<p style="font-size:12.5px;color:var(--text-secondary);margin:0">No open orders — everything is fully received and closed.</p>'}
     </div>`);

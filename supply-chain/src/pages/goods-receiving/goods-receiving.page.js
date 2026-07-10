@@ -26,6 +26,8 @@ import { shelfLife } from '../../models/shelf-life.js';
 import {
   listGoodsReceipts, getGoodsReceipt, setBatchQc, releaseGoodsReceipt, recordShelfLifeException,
 } from '../../services/goods-receiving/goods-receiving.service.js';
+import { renderDocumentChain } from '../../components/related/document-chain.js';
+import { listChainAttachments, attachmentUrl, kindOf } from '../../services/attachments/attachments.service.js';
 import { priceIndex } from '../../services/fulfillment/fulfillment.service.js';
 import { listSkus, indexByRoshen, indexByCode } from '../../services/sku/sku.service.js';
 
@@ -100,8 +102,44 @@ async function renderDetail(root, ctx, grId) {
       <div class="sc-card-h"><h3>🏬 ${esc(gr.grn_number || 'Warehouse Receipt')}</h3><div class="sc-spacer"></div>
         ${statusBadge(gr.status)}<button class="sc-btn sm ghost" style="margin-left:10px" data-act="back">← Warehouse Receiving</button></div>
       <div class="sc-card"><span class="sc-badge confirmed">Receipt ${esc(gr.status)}</span> — accepted items are in the warehouse; the PI totals are updated.</div>
-      <div class="sc-card">${tableWrap(`<table class="sc-table"><thead><tr><th>Item</th><th>Batch</th><th>Expiry</th><th class="num">Delivered</th><th class="num">Received</th><th>Decision</th></tr></thead><tbody>${rows}</tbody></table>`)}</div>`);
+      <div class="sc-card">${tableWrap(`<table class="sc-table"><thead><tr><th>Item</th><th>Batch</th><th>Expiry</th><th class="num">Delivered</th><th class="num">Received</th><th>Decision</th></tr></thead><tbody>${rows}</tbody></table>`)}</div>
+      <div data-el="gr-atts"></div>
+      <div data-el="gr-chain"></div>`);
     wire(root, { back: () => ctx.navigate('goods-receiving') });
+    renderChainExtras();
+  }
+
+  // Related Documents (the permanent chain) + the chain's original files —
+  // the receipt is a system document, so its Attachments panel REFERENCES the
+  // originals uploaded on the PO / DN / invoice (same records, never copies).
+  function renderChainExtras() {
+    const chainEl = qs('[data-el="gr-chain"]', root);
+    if (chainEl) {
+      renderDocumentChain(chainEl, (s, p) => ctx.navigate(s, p),
+        { orderId: gr.order_id, current: { type: 'goods_receipt', id: gr.id } });
+    }
+    const attEl = qs('[data-el="gr-atts"]', root);
+    if (attEl && gr.order_id) {
+      listChainAttachments(gr.order_id).then((atts) => {
+        if (!atts.length) return;
+        attEl.innerHTML = `<div class="sc-card"><div class="sc-card-h"><h3>📎 Attachments — original documents</h3>
+          <span class="sc-badge none" style="margin-left:8px">${atts.length}</span><div class="sc-spacer"></div>
+          <span style="font-size:11px;color:var(--text-muted)">the chain's uploaded originals — same files, referenced (never duplicated)</span></div>
+          <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Document</th><th>File</th><th>Uploaded</th><th>By</th><th></th></tr></thead><tbody>
+          ${atts.map((a) => `<tr><td style="font-size:12px">${esc(a.doc_label)}</td>
+            <td>${{ pdf: '📄', image: '🖼', sheet: '📊' }[kindOf(a.mime || a.filename)] || '📎'} <b style="font-size:12px">${esc(a.filename)}</b>${a.revision > 1 ? ` <span class="sc-badge approved">rev ${a.revision}</span>` : ''}</td>
+            <td style="font-size:11.5px">${esc(String(a.created_at || '').slice(0, 16).replace('T', ' '))}</td>
+            <td style="font-size:11.5px">${esc(a.uploaded_by || '—')}</td>
+            <td style="text-align:right;white-space:nowrap">
+              <button class="sc-btn sm ghost" data-att-view="${esc(a.storage_path)}">👁 View</button>
+              <button class="sc-btn sm ghost" data-att-dl="${esc(a.storage_path)}" data-name="${esc(a.filename)}">⬇ Download</button></td></tr>`).join('')}
+          </tbody></table></div></div>`;
+        attEl.querySelectorAll('[data-att-view]').forEach((b) => b.addEventListener('click', () =>
+          window.open(attachmentUrl({ storage_path: b.dataset.attView }), '_blank')));
+        attEl.querySelectorAll('[data-att-dl]').forEach((b) => b.addEventListener('click', () =>
+          window.open(attachmentUrl({ storage_path: b.dataset.attDl }) + '?download=' + encodeURIComponent(b.dataset.name), '_blank')));
+      }).catch(() => {});
+    }
   }
 
   // ================= active receiving =================
@@ -207,7 +245,10 @@ async function renderDetail(root, ctx, grId) {
                : needApproval
                  ? '⚡ Enter the exception reason and approver above — the receipt then posts automatically.'
                  : 'Posting the warehouse receipt…'}</span>`}
-      </div>`);
+      </div>
+      <div data-el="gr-atts"></div>
+      <div data-el="gr-chain"></div>`);
+    renderChainExtras();
 
     // ---- interactions (state only — no service calls until confirm) ----
     const keepApproval = () => {

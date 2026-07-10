@@ -36,7 +36,7 @@ export async function render(root, ctx) {
     <div class="sc-card-h"><h3>🛫 Shipments</h3>
       <span class="sc-badge none" style="margin-left:8px">${shipments.length}</span>
       <div class="sc-spacer"></div>
-      <span style="font-size:12px;color:var(--text-secondary)">Ready for Delivery <b>${shipments.filter((d) => d.status === 'Ready for Delivery').length}</b> · In Transit <b>${shipments.filter((d) => d.status === 'In Transit').length}</b> · Overdue <b>${shipments.filter(overdue).length}</b></span></div>
+      <span style="font-size:12px;color:var(--text-secondary)">Ready for Delivery <b>${shipments.filter((d) => d.status === 'Ready for Delivery').length}</b> · Shipped (in transit) <b>${shipments.filter((d) => d.status === 'In Transit').length}</b> · Overdue <b>${shipments.filter(overdue).length}</b></span></div>
     <div class="sc-card">
       <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">Deliveries with a matched supplier invoice, on their way to the warehouse. Open one to update the ETA or confirm the warehouse receipt.</p>
       ${tableWrap(`<table class="sc-table"><thead><tr>
