@@ -246,6 +246,42 @@ export async function releaseGoodsReceipt(grId, opts = {}) {
   return { status, released: rel, rejected: rej, total };
 }
 
+// Automatic receiving — the business rule: once every batch is approved
+// (healthy batches need no approval; below-minimum ones need their audited
+// exception decision), the warehouse receipt posts ITSELF — no extra click.
+// This helper releases a receipt automatically when it is CLEAN: every batch
+// meets its SKU's minimum remaining shelf life. Receipts with exceptions (or
+// any release-guard failure, e.g. a disputed over-delivery) are left pending
+// for the receiving screen, which auto-completes after the final approval.
+// Validation, shelf-life math, guards and audit are the existing code paths —
+// this only removes the manual confirmation for the clean case.
+export async function autoReleaseIfClean(grId, opts = {}) {
+  const c = getClient();
+  const gr = await getGoodsReceipt(grId);
+  if (['Released', 'Partially Released', 'Rejected'].includes(gr.status)) return { autoReleased: true, already: true };
+
+  const skuIds = [...new Set(gr.batches.map((b) => b.sku_id).filter(Boolean))];
+  const { data: skus } = skuIds.length ? await c.from('sku_master')
+    .select('id,shelf_life_value,shelf_life_unit,min_remaining_shelf_life_pct').in('id', skuIds) : { data: [] };
+  const skuById = {}; (skus || []).forEach((x) => { skuById[x.id] = x; });
+  const hasExceptions = gr.batches.some((b) =>
+    shelfLife(skuById[b.sku_id] || null, { expiry_date: b.expiry_date, manufacturing_date: b.manufacturing_date }, today()).belowMinimum);
+  if (hasExceptions) return { autoReleased: false, reason: 'exceptions' };
+
+  // clean receipt → accept everything (Received = Delivered) and post
+  for (const b of gr.batches) {
+    await setBatchQc(b.id, { qc_result: 'Released', received_cases: Number(b.delivered_cases || 0), rejected_cases: 0 });
+  }
+  try {
+    const res = await releaseGoodsReceipt(grId, { warehouse: opts.warehouse || gr.warehouse, costByKey: opts.costByKey, releasedBy: opts.actor || 'auto-receive' });
+    return { autoReleased: true, ...res };
+  } catch (e) {
+    // a release guard refused (e.g. disputed over-delivery cap) — leave the
+    // receipt pending for manual handling on the receiving screen
+    return { autoReleased: false, reason: e.message || String(e) };
+  }
+}
+
 // Keep the PI's operational status in sync with the fulfillment ledger AFTER
 // the goods-receipt header is final (the DB trigger fires per movement, before
 // the GR is marked Released, so it can lag one release behind). The PI CLOSES

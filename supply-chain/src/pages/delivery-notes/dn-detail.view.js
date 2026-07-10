@@ -17,7 +17,7 @@ import { getFulfillmentWithSummary } from '../../services/fulfillment/fulfillmen
 import { receivingValidation } from '../../services/delivery-note/dn-receiving-validation.js';
 import { listSkus, indexByRoshen, indexByCode } from '../../services/sku/sku.service.js';
 import { matchInvoiceToDeliveryNote, getInvoiceDocument } from '../../services/supplier-invoice/supplier-invoice.service.js';
-import { createGoodsReceiptFromDeliveryNote } from '../../services/goods-receiving/goods-receiving.service.js';
+import { createGoodsReceiptFromDeliveryNote, autoReleaseIfClean } from '../../services/goods-receiving/goods-receiving.service.js';
 import { printDeliveryNote } from '../../utils/documents.js';
 import { attachmentsPanel } from '../../components/attachments/attachments-panel.js';
 
@@ -131,12 +131,12 @@ export async function renderDnDetail(root, ctx, dnId) {
       <p style="font-size:12.5px;color:var(--text-secondary)">${!invMatched
         ? 'Blocked: the supplier invoice must match this delivery note first (same items, quantities and prices).'
         : inTransit
-          ? `On its way${eta ? ' — expected <b>' + esc(eta) + '</b>' : ''}. When it arrives, confirm the warehouse receipt.`
-          : 'Invoice matched — the shipment is ready. Set the expected delivery date, then confirm the warehouse receipt when it arrives.'}</p>
+          ? `On its way${eta ? ' — expected <b>' + esc(eta) + '</b>' : ''}. When it arrives, confirm the arrival — healthy goods are received into the warehouse automatically.`
+          : 'Invoice matched — the shipment is ready. Set the expected delivery date, then confirm the arrival — healthy goods are received into the warehouse automatically.'}</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         ${invMatched && !inTransit ? '<button class="sc-btn primary" data-act="dispatch">🚚 Dispatch — set Expected Delivery</button>' : ''}
         ${invMatched && inTransit ? '<button class="sc-btn sm ghost" data-act="dispatch">🕓 Update ETA</button>' : ''}
-        <button class="sc-btn ${invMatched ? 'green' : 'ghost'}" data-act="creategr" ${invMatched ? '' : 'disabled'}>✅ Confirm Warehouse Receipt</button>
+        <button class="sc-btn ${invMatched ? 'green' : 'ghost'}" data-act="creategr" ${invMatched ? '' : 'disabled'}>✅ Confirm Arrival — receive into warehouse</button>
       </div></div>`;
   }
 
@@ -219,7 +219,17 @@ export async function renderDnDetail(root, ctx, dnId) {
     },
     rematch: async () => { try { const r = await matchInvoiceToDeliveryNote(inv.id); toast('Invoice ' + r.status, r.matched ? 'ok' : 'info'); renderDnDetail(root, ctx, dnId); } catch (e) { toast(e.message || String(e), 'err'); } },
     creategr: async () => {
-      try { const g = await createGoodsReceiptFromDeliveryNote(dn.id, { warehouse: dn.order && dn.order.warehouse, createdBy: 'dn-detail' }); toast('Goods receipt ' + g.grn_number + ' created', 'ok'); ctx.navigate('goods-receiving', { view: 'detail', grId: g.id }); }
+      try {
+        const g = await createGoodsReceiptFromDeliveryNote(dn.id, { warehouse: dn.order && dn.order.warehouse, createdBy: 'dn-detail' });
+        // business rule: a clean receipt (every batch meets its shelf-life
+        // minimum) posts to the warehouse automatically — this click was the
+        // confirmation. Exceptions go to the receiving screen for approval.
+        const auto = await autoReleaseIfClean(g.id, { warehouse: dn.order && dn.order.warehouse, actor: 'dn-detail' });
+        if (auto.autoReleased) toast(`Received into warehouse — receipt ${g.grn_number} completed automatically`, 'ok');
+        else if (auto.reason === 'exceptions') toast('Shelf-life exceptions need your decision — the receipt completes automatically once resolved', 'info');
+        else toast('Receipt created — review it on the receiving screen: ' + auto.reason, 'info');
+        ctx.navigate('goods-receiving', { view: 'detail', grId: g.id });
+      }
       catch (e) { toast(e.message || String(e), 'err'); }
     },
     opengr: ({ id }) => ctx.navigate('goods-receiving', { view: 'detail', grId: id }),
