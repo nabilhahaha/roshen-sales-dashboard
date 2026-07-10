@@ -12,6 +12,7 @@ import { toast } from '../../components/notifications/toast.js';
 import { openOrdersOverview } from '../../services/fulfillment/fulfillment.service.js';
 import { closeOrderManually, listReplacementCandidates } from '../../services/purchase-orders/orders.service.js';
 import { BIZ_VARIANT, CLOSE_REASONS } from '../../models/business-status.js';
+import { exportOpenOrdersExcel } from '../../services/export/business-export.service.js';
 
 const bizBadge = (s) => `<span class="sc-badge ${BIZ_VARIANT[s] || 'none'}">${esc(s)}</span>`;
 
@@ -27,6 +28,7 @@ export async function render(root, ctx) {
   // delegated once — paint() only swaps innerHTML, so no listener stacking
   delegate(root, {
     open: ({ id }) => ctx.navigate('purchase-orders', { orderId: +id, mode: 'view' }),
+    xlsall: async () => { try { await exportOpenOrdersExcel(orders); toast('Open orders exported', 'ok'); } catch (e) { toast(e.message || String(e), 'err'); } },
     lines: ({ id }) => { const n = +id; OPEN_LINES.has(n) ? OPEN_LINES.delete(n) : OPEN_LINES.add(n); paint(); },
     opendn: ({ id }) => ctx.navigate('delivery-notes', { view: 'detail', dnId: +id }),
     opensi: ({ id }) => ctx.navigate('supplier-invoices', { view: 'detail', invoiceId: +id }),
@@ -76,7 +78,8 @@ export async function render(root, ctx) {
       <div class="sc-card-h"><h3>⏳ Open Orders</h3>
         <span class="sc-badge none" style="margin-left:8px">${orders.length}</span>
         <div class="sc-spacer"></div>
-        <span style="font-size:12.5px;color:var(--text-secondary)">Ordered <b>${qty(tot.ordered)}</b> · Shipped <b>${qty(tot.shipped)}</b> · Delivered <b>${qty(tot.delivered)}</b> · Still expected <b>${qty(tot.remaining)}</b> cases</span></div>
+        <span style="font-size:12.5px;color:var(--text-secondary)">Ordered <b>${qty(tot.ordered)}</b> · Shipped <b>${qty(tot.shipped)}</b> · Delivered <b>${qty(tot.delivered)}</b> · Still expected <b>${qty(tot.remaining)}</b> cases</span>
+        <button class="sc-btn ghost sm" style="margin-left:10px" data-act="xlsall">⬇ Excel</button></div>
       <div class="sc-card">
         <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">Live business status per order: <b>Approved</b> → <b>Shipped</b> (delivery note confirmed) → <b>Delivered</b> (invoice matched &amp; goods posted). Fully delivered orders move to Purchase History automatically; use ✖ Close when the supplier cannot complete an order.</p>
         ${tableWrap(`<table class="sc-table"><thead><tr>

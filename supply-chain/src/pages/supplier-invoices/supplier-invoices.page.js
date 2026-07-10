@@ -11,6 +11,7 @@ import { statusBadge } from '../../components/table/badges.js';
 import { orderBadge } from '../../components/table/table.js';
 import { siBusinessStatus } from '../../models/business-status.js';
 import { renderDocumentChain } from '../../components/related/document-chain.js';
+import { exportSupplierInvoicesExcel } from '../../services/export/business-export.service.js';
 import { modal } from '../../components/modal/modal.js';
 import { toast } from '../../components/notifications/toast.js';
 import { printSupplierInvoice } from '../../utils/documents.js';
@@ -62,7 +63,8 @@ async function renderList(root, ctx) {
       <span class="sc-badge none" style="margin-left:8px">${invoices.length}</span>
       <div class="sc-spacer"></div>
       <span style="font-size:12px">${chips}</span>
-      <button class="sc-btn primary" style="margin-left:12px" data-act="upload">📄 Upload Supplier Invoice</button></div>
+      <button class="sc-btn ghost sm" style="margin-left:12px" data-act="xls">⬇ Excel</button>
+      <button class="sc-btn primary" style="margin-left:8px" data-act="upload">📄 Upload Supplier Invoice</button></div>
     <div class="sc-card">
       <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">Each supplier invoice is checked line-by-line against its delivery note and the PI. Upload the supplier's PDF here — the PI and Delivery Note are linked automatically from the document's references.</p>
       ${tableWrap(`<table class="sc-table"><thead><tr>
@@ -74,6 +76,7 @@ async function renderList(root, ctx) {
   delegate(root, {
     open: ({ id }) => ctx.navigate('supplier-invoices', { view: 'detail', invoiceId: id }),
     upload: () => ctx.navigate('supplier-invoices', { view: 'upload' }),
+    xls: async () => { try { await exportSupplierInvoicesExcel(); toast('Supplier invoices exported', 'ok'); } catch (e) { toast(e.message || String(e), 'err'); } },
   });
 }
 

@@ -21,6 +21,7 @@ import { createGoodsReceiptFromDeliveryNote, autoReleaseIfClean } from '../../se
 import { printDeliveryNote } from '../../utils/documents.js';
 import { attachmentsPanel } from '../../components/attachments/attachments-panel.js';
 import { renderDocumentChain } from '../../components/related/document-chain.js';
+import { exportDeliveryNoteExcel } from '../../services/export/business-export.service.js';
 
 const ACTOR = 'Development';
 
@@ -152,6 +153,7 @@ export async function renderDnDetail(root, ctx, dnId) {
 
   const actionBtns = [
     '<button class="sc-btn sm ghost" data-act="print">🖨 Print DN</button>',
+    '<button class="sc-btn sm ghost" data-act="xls">⬇ Excel</button>',
     editable ? '<button class="sc-btn sm ghost" data-act="edit">✏️ Edit</button>' : '',
     editable ? '<button class="sc-btn sm ghost" data-act="cancel">✖ Cancel</button>' : '',
     reversible ? '<button class="sc-btn sm ghost" data-act="reverse">↩ Reverse</button>' : '',
@@ -195,6 +197,7 @@ export async function renderDnDetail(root, ctx, dnId) {
   wire(root, {
     back: () => ctx.navigate('delivery-notes'),
     print: () => { if (!printDeliveryNote(dn)) toast('Allow pop-ups to print', 'err'); },
+    xls: async () => { try { await exportDeliveryNoteExcel(dn.id); toast('Delivery note exported', 'ok'); } catch (e) { toast(e.message || String(e), 'err'); } },
     edit: () => openEditModal(dn, () => renderDnDetail(root, ctx, dnId)),
     cancel: () => openReasonModal('Cancel delivery note?', 'The delivery will be removed from the PI totals. This action is recorded.', 'Cancel DN', async (reason) => {
       try { await cancelDeliveryNote(dnId, { reason, actor: ACTOR }); toast('Delivery note cancelled', 'ok'); renderDnDetail(root, ctx, dnId); } catch (e) { toast(e.message || String(e), 'err'); }
