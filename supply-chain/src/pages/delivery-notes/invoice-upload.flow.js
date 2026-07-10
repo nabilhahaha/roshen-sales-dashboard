@@ -25,11 +25,18 @@ function similarity(a, b) {
   let hit = 0; tb.forEach((w) => { if (ta.has(w)) hit++; }); return hit / Math.max(ta.size, tb.length);
 }
 
+// File handoff from the standalone Supplier-Invoice upload: when that screen
+// already has the PDF and resolves the referenced DN, it navigates here and
+// leaves the file so the user doesn't have to select it twice.
+let PENDING_FILE = null;
+export function setPendingInvoiceFile(file) { PENDING_FILE = file; }
+
 export async function startInvoiceUpload(root, ctx, dnId) {
   mount(root, loading('Loading delivery note…'));
   let dn, prices;
   try { dn = await getDeliveryNote(dnId); prices = await priceIndex(dn.order_id).catch(() => ({})); }
   catch (e) { return mount(root, emptyState('⚠', e.message || String(e))); }
+  const returnTo = ctx.params && ctx.params.returnTo === 'supplier-invoices' ? 'supplier-invoices' : null;
 
   // DN lines (binding targets) with expected value from PO price
   const dnLines = dn.items.map((it) => {
@@ -43,7 +50,8 @@ export async function startInvoiceUpload(root, ctx, dnId) {
 
   const state = { parsed: null, file: null, binds: {} };
 
-  uploadStep();
+  if (PENDING_FILE) { const f = PENDING_FILE; PENDING_FILE = null; handle(f); }
+  else uploadStep();
 
   function uploadStep() {
     mount(root, `
@@ -215,7 +223,8 @@ export async function startInvoiceUpload(root, ctx, dnId) {
         extracted: { header: p.header, totals: p.totals, lines: p.lines }, validation, status, createdBy: 'invoice-upload',
       });
       toast('Supplier invoice saved · ' + status, status === 'Matched' ? 'ok' : 'info');
-      ctx.navigate('delivery-notes', { view: 'detail', dnId });
+      if (returnTo === 'supplier-invoices') ctx.navigate('supplier-invoices');
+      else ctx.navigate('delivery-notes', { view: 'detail', dnId });
     } catch (e) {
       toast('Save failed: ' + (e.message || e), 'err'); saving = false;
       qsa('[data-el="actions"] .sc-btn', root).forEach((b) => (b.disabled = false));

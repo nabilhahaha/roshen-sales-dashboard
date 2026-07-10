@@ -84,6 +84,72 @@ async function deliveryNoteMatchContext(deliveryNoteId) {
   return { orderId: dn.order_id, dnNumber: dn.dn_number, poReference: dn.po_reference, expectedNet: +expectedNet.toFixed(2), lineCount };
 }
 
+// ---- automatic linking by document references -----------------------
+// The invoice document carries its own references (e.g. subject "KS-417
+// DN-761"); system documents carry the year suffix (KS-417/2026,
+// DN-761/2026). A reference matches a document number when it is equal or
+// the number continues with "/…".
+const refMatches = (num, ref) => {
+  if (!num || !ref) return false;
+  const n = String(num).trim().toLowerCase(), r = String(ref).trim().toLowerCase();
+  return n === r || n.startsWith(r + '/');
+};
+
+// Resolve the PI (supply_orders) and Delivery Note this invoice references.
+// Returns { order, dn } — either may be null when the document isn't in the
+// system yet (the invoice then stays in 'Pending Matching').
+export async function resolveInvoiceReferences({ po_reference, dn_reference } = {}) {
+  const c = getClient();
+  let order = null, dn = null;
+  if (po_reference) {
+    const { data, error } = await c.from('supply_orders')
+      .select('id,order_number,supplier,status').ilike('order_number', String(po_reference).trim() + '%');
+    if (error) throw error;
+    order = (data || []).find((o) => refMatches(o.order_number, po_reference)) || null;
+  }
+  if (dn_reference) {
+    let q = c.from('delivery_notes').select('id,dn_number,order_id,status')
+      .ilike('dn_number', String(dn_reference).trim() + '%')
+      .not('status', 'in', '("Cancelled","Reversed")');
+    if (order) q = q.eq('order_id', order.id);
+    const { data, error } = await q;
+    if (error) throw error;
+    dn = (data || []).find((d) => refMatches(d.dn_number, dn_reference)) || null;
+    if (dn && !order) {
+      const { data: o } = await c.from('supply_orders').select('id,order_number,supplier,status').eq('id', dn.order_id).single();
+      order = o || null;
+    }
+  }
+  return { order, dn };
+}
+
+// Link a 'Pending Matching' invoice once its referenced documents arrive.
+// Re-resolves the references; links the PI (and DN when found). The invoice
+// leaves Pending Matching only when its Delivery Note is linked — matching
+// itself stays an explicit step (Re-check match) so unbound lines can be
+// verified first.
+export async function linkPendingInvoice(invoiceId, { actor } = {}) {
+  const c = getClient();
+  const inv = await getInvoice(invoiceId);
+  if (inv.status !== 'Pending Matching') throw new Error('Only a Pending Matching invoice can be linked.');
+  const exh = (inv.extracted && inv.extracted.header) || {};
+  const { order, dn } = await resolveInvoiceReferences({
+    po_reference: exh.po_reference || null,
+    dn_reference: inv.dn_reference || exh.dn_reference || null,
+  });
+  if (!order && !dn) return { linked: false };
+  const patch = { updated_at: new Date().toISOString() };
+  if (order) patch.order_id = order.id;
+  if (dn) { patch.delivery_note_id = dn.id; patch.status = 'Imported'; }
+  const { error } = await c.from('supplier_invoices').update(patch).eq('id', invoiceId);
+  if (error) throw error;
+  try {
+    await logInvoiceAudit(invoiceId, (order && order.id) || inv.order_id, 'linked',
+      { detail: { order: order && order.order_number, dn: dn && dn.dn_number }, actor });
+  } catch (e) { /* audit best-effort */ }
+  return { linked: true, order: order || null, dn: dn || null, status: dn ? 'Imported' : 'Pending Matching' };
+}
+
 // Create an invoice from an uploaded supplier document (PDF). Stores the header,
 // the extracted payload + validation outcome, the original file for audit, and
 // the (user-verified, SKU-bound) line items. `status` is decided by the
@@ -113,7 +179,7 @@ export async function createSupplierInvoiceFromUpload(inv) {
   }
 
   const { data: invRow, error: e1 } = await c.from('supplier_invoices').insert({
-    order_id: inv.orderId,
+    order_id: inv.orderId || null,   // null = not linked to a PI yet (Pending Matching)
     delivery_note_id: inv.deliveryNoteId || null,
     doc_type: inv.docType || 'invoice',
     parent_invoice_id: inv.parentInvoiceId || null,

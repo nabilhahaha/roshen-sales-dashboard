@@ -15,8 +15,10 @@ import { attachmentsPanel } from '../../components/attachments/attachments-panel
 import {
   listInvoices, getInvoice, getInvoiceDocument, listInvoiceAudit,
   matchInvoiceLineLevel, editSupplierInvoice, cancelSupplierInvoice, createAdjustmentNote,
+  linkPendingInvoice,
 } from '../../services/supplier-invoice/supplier-invoice.service.js';
 import { disputeInvoiceDifferences, listInvoiceDisputes, closeInvoiceDispute } from '../../services/supplier-invoice/si-dispute.service.js';
+import { startSiUpload } from './si-upload.flow.js';
 
 const ACTOR = 'Development';
 const DOC_LABEL = { invoice: 'Invoice', credit_note: 'Credit Note', debit_note: 'Debit Note' };
@@ -25,6 +27,7 @@ const docChip = (t) => `<span class="sc-badge ${t === 'credit_note' ? 'closed' :
 export async function render(root, ctx) {
   const view = (ctx.params && ctx.params.view) || 'list';
   if (view === 'detail' && ctx.params.invoiceId) return renderInvoiceDetail(root, ctx, ctx.params.invoiceId);
+  if (view === 'upload') return startSiUpload(root, ctx);
   return renderList(root, ctx);
 }
 
@@ -48,23 +51,27 @@ async function renderList(root, ctx) {
     </tr>`).join('') || '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:22px">No supplier invoices yet — upload one from a delivery note to begin.</td></tr>';
 
   const counts = invoices.reduce((a, i) => { a[i.status] = (a[i.status] || 0) + 1; return a; }, {});
-  const chips = ['Matched', 'Partially Matched', 'Disputed', 'Imported'].filter((s) => counts[s])
+  const chips = ['Matched', 'Partially Matched', 'Disputed', 'Pending Matching', 'Imported'].filter((s) => counts[s])
     .map((s) => `${statusBadge(s)}&nbsp;${counts[s]}`).join('&nbsp;&nbsp;');
 
   mount(root, `
     <div class="sc-card-h"><h3>🧾 Supplier Invoices</h3>
       <span class="sc-badge none" style="margin-left:8px">${invoices.length}</span>
       <div class="sc-spacer"></div>
-      <span style="font-size:12px">${chips}</span></div>
+      <span style="font-size:12px">${chips}</span>
+      <button class="sc-btn primary" style="margin-left:12px" data-act="upload">📄 Upload Supplier Invoice</button></div>
     <div class="sc-card">
-      <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">Each supplier invoice is checked line-by-line against its delivery note and the PI. Upload a new invoice from its delivery note.</p>
+      <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">Each supplier invoice is checked line-by-line against its delivery note and the PI. Upload the supplier's PDF here — the PI and Delivery Note are linked automatically from the document's references.</p>
       ${tableWrap(`<table class="sc-table"><thead><tr>
         <th>Number</th><th>Type</th><th>Date</th><th>PI</th><th>Delivery Note</th><th>Supplier</th>
         <th class="num">Net</th><th class="num">Grand</th><th>Status</th></tr></thead>
         <tbody>${rows}</tbody></table>`)}
     </div>`);
 
-  delegate(root, { open: ({ id }) => ctx.navigate('supplier-invoices', { view: 'detail', invoiceId: id }) });
+  delegate(root, {
+    open: ({ id }) => ctx.navigate('supplier-invoices', { view: 'detail', invoiceId: id }),
+    upload: () => ctx.navigate('supplier-invoices', { view: 'upload' }),
+  });
 }
 
 // ---- detail ---------------------------------------------------------
@@ -119,9 +126,11 @@ async function renderInvoiceDetail(root, ctx, invoiceId) {
       ${a.note ? `<div style="font-size:12px;color:var(--text-secondary)">${esc(a.note)}</div>` : ''}</div>`).join('')}</div>`
       : '<p style="font-size:12px;color:var(--text-muted);margin:0">No actions recorded yet.</p>'}</div>`;
 
+  const isPending = inv.status === 'Pending Matching';
   const actionBtns = [
     '<button class="sc-btn sm ghost" data-act="print">🖨 Print</button>',
-    !isNote ? '<button class="sc-btn sm ghost" data-act="rematch">🔗 Re-check match</button>' : '',
+    isPending ? '<button class="sc-btn sm ghost" data-act="linknow">🔗 Check for matching documents</button>' : '',
+    (!isNote && !isPending && inv.delivery_note_id) ? '<button class="sc-btn sm ghost" data-act="rematch">🔗 Re-check match</button>' : '',
     (!isNote && sm.hardVariances > 0 && cancellable) ? '<button class="sc-btn sm ghost" data-act="dispute">⚖ Raise disputes</button>' : '',
     editable ? '<button class="sc-btn sm ghost" data-act="edit">✏️ Edit</button>' : '',
     !isNote && cancellable ? '<button class="sc-btn sm ghost" data-act="credit">➖ Credit Note</button>' : '',
@@ -130,7 +139,10 @@ async function renderInvoiceDetail(root, ctx, invoiceId) {
     cancellable ? '<button class="sc-btn sm ghost" data-act="cancel">✖ Cancel</button>' : '',
   ].filter(Boolean).join('');
 
-  const matchBanner = isNote
+  const matchBanner = isPending
+    ? `<div class="sc-card" style="border-left:3px solid #F2C037"><b>⏳ Pending Matching</b>
+        <p style="font-size:12px;color:var(--text-secondary);margin:6px 0 0">The referenced PI (${esc((inv.extracted && inv.extracted.header && inv.extracted.header.po_reference) || '—')}) / Delivery Note (${esc(inv.dn_reference || '—')}) ${inv.order ? 'are only partially' : 'are not yet'} in the system. The invoice is stored exactly as imported — use <b>Check for matching documents</b> once they arrive.</p></div>`
+    : isNote
     ? `<div class="sc-card" style="border-left:3px solid ${inv.doc_type === 'credit_note' ? '#E8590C' : '#1971C2'}"><b>${docChip(inv.doc_type)} adjustment</b>
         <p style="font-size:12px;color:var(--text-secondary);margin:6px 0 0">This ${DOC_LABEL[inv.doc_type].toLowerCase()} adjusts invoice <b>${esc((inv.parent_invoice_id && '#' + inv.parent_invoice_id) || '')}</b> and nets automatically in the PO invoiced balance.${inv.adjustment_reason ? ' Reason: ' + esc(inv.adjustment_reason) : ''}</p></div>`
     : (sm.hardVariances > 0
@@ -173,6 +185,14 @@ async function renderInvoiceDetail(root, ctx, invoiceId) {
     back: () => ctx.navigate('supplier-invoices'),
     print: () => { if (!printSupplierInvoice(inv)) toast('Allow pop-ups to print', 'err'); },
     rematch: async () => { try { const r = await matchInvoiceLineLevel(invoiceId, { actor: ACTOR }); toast('Invoice ' + r.status, r.matched ? 'ok' : 'info'); renderInvoiceDetail(root, ctx, invoiceId); } catch (e) { toast(e.message || String(e), 'err'); } },
+    linknow: async () => {
+      try {
+        const r = await linkPendingInvoice(invoiceId, { actor: ACTOR });
+        if (!r.linked) return toast('Referenced PI / Delivery Note not found yet — try again once they are imported.', 'info');
+        toast(`Linked${r.order ? ' · PI ' + r.order.order_number : ''}${r.dn ? ' · DN ' + r.dn.dn_number : ''}`, 'ok');
+        renderInvoiceDetail(root, ctx, invoiceId);
+      } catch (e) { toast(e.message || String(e), 'err'); }
+    },
     dispute: async () => {
       try {
         const m = await matchInvoiceLineLevel(invoiceId, { actor: ACTOR, keepStatus: true });
