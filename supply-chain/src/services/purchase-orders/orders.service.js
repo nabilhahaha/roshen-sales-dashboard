@@ -60,6 +60,57 @@ export async function setStatus(id, status) {
   if (error) throw error;
 }
 
+// ---- manual close (business action — never a delete) ----------------------
+// Closes an order that the supplier cannot / will not complete. Mandatory
+// reason, optional comments and replacement-PO link; remaining quantities
+// become Cancelled (derived — historical data untouched); audited.
+export async function closeOrderManually(id, { reason, comments, closedBy, replacedByOrderId } = {}) {
+  if (!reason || !String(reason).trim()) throw new Error('A close reason is required');
+  const order = await getOrder(id);
+  if (['Closed', 'Financially Closed'].includes(order.status)) throw new Error('This purchase order is already closed.');
+  const closed_at = new Date().toISOString();
+  const { error } = await sb().from('supply_orders').update({
+    status: 'Closed',
+    close_reason: String(reason).trim(),
+    close_comments: comments ? String(comments).trim() : null,
+    closed_by: closedBy || null,
+    closed_at,
+    replaced_by_order_id: replacedByOrderId || null,
+    updated_at: closed_at,
+  }).eq('id', id);
+  if (error) throw error;
+  await auditOrder(id, 'closed', closedBy, {
+    reason, comments: comments || null, previous_status: order.status,
+    replaced_by_order_id: replacedByOrderId || null,
+  });
+  return { id, status: 'Closed', closed_at };
+}
+
+// PO audit log (approve / close / status change …)
+export async function auditOrder(orderId, action, actor, details) {
+  const { error } = await sb().from('po_audit_log')
+    .insert({ order_id: orderId, action, actor: actor || null, details: details || null });
+  if (error) throw error;
+}
+
+export async function listOrderAudit(orderId) {
+  const { data, error } = await sb().from('po_audit_log')
+    .select('*').eq('order_id', orderId).order('created_at', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+// orders that can be picked as a replacement for a closed PO
+export async function listReplacementCandidates(excludeId) {
+  const { data, error } = await sb().from('supply_orders')
+    .select('id,order_number,status,order_date')
+    .not('status', 'in', '("Closed","Financially Closed")')
+    .neq('id', excludeId)
+    .order('created_at', { ascending: false }).limit(50);
+  if (error) throw error;
+  return data || [];
+}
+
 // Map an order's items to the shape the PI comparison engine expects.
 export function comparableLines(order) {
   return (order.supply_order_items || []).map((it) => ({

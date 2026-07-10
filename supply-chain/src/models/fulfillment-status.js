@@ -46,7 +46,11 @@ export const PO_FULFILLMENT = {
 // the stored values and the workflow never change).
 export const STATUS_DISPLAY = {
   Imported: 'New',
-  'Receiving Review': 'Being Received',
+  // business vocabulary (models/business-status.js is the single source of
+  // truth): a confirmed/dispatched DN is SHIPPED, a posted one is DELIVERED
+  'In Transit': 'Shipped',
+  'Receiving Review': 'Shipped · Receiving',
+  Received: 'Delivered',
   'Partially Released': 'Partly Released',
 };
 

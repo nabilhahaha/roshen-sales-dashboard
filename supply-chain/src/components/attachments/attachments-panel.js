@@ -18,7 +18,10 @@ const fmtWhen = (t) => esc(String(t || '').slice(0, 16).replace('T', ' '));
 
 // attachmentsPanel(el, 'purchase_order', 42, { actor })
 export function attachmentsPanel(el, docType, docId, { actor = 'Development' } = {}) {
-  let expanded = false;
+  // OPEN by default: the original uploaded document (View / Download /
+  // uploader / date / version history) must be visible on every document
+  // detail page without an extra click.
+  let expanded = true;
   let replaceTarget = null; // attachment id being replaced by the next upload
 
   const shell = () => {

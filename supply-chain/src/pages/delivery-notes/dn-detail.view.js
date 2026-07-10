@@ -4,7 +4,7 @@
 // trail. Pages talk only to services.
 import { mount, wire, qsa } from '../../utils/dom.js';
 import { esc, qty, today, normRoshen } from '../../utils/format.js';
-import { loading, emptyState, tableWrap } from '../../components/table/table.js';
+import { loading, emptyState, tableWrap, orderBadge } from '../../components/table/table.js';
 import { modal } from '../../components/modal/modal.js';
 import { toast } from '../../components/notifications/toast.js';
 import { statusBadge, qcBadge, shelfChip } from '../../components/table/badges.js';
@@ -20,6 +20,7 @@ import { matchInvoiceToDeliveryNote, getInvoiceDocument } from '../../services/s
 import { createGoodsReceiptFromDeliveryNote, autoReleaseIfClean } from '../../services/goods-receiving/goods-receiving.service.js';
 import { printDeliveryNote } from '../../utils/documents.js';
 import { attachmentsPanel } from '../../components/attachments/attachments-panel.js';
+import { renderDocumentChain } from '../../components/related/document-chain.js';
 
 const ACTOR = 'Development';
 
@@ -185,14 +186,11 @@ export async function renderDnDetail(root, ctx, dnId) {
       <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Batch / Lot · Item</th><th>Expiry</th><th class="num">Delivered</th><th class="num">Remaining</th><th class="num">Disputed / Shelf</th><th>QC</th></tr></thead><tbody>${lineRows}</tbody></table></div></div>
     ${validationCard}
     <div data-el="dn-attachments"></div>
-    <div class="sc-card"><div class="sc-card-h"><h3>🔗 Related Documents</h3></div>
-      <div class="sc-table-wrap"><table class="sc-table"><tbody>
-        ${dn.order ? `<tr class="sc-row-link" data-act="openpi"><td>📄 Purchase Invoice (PI)</td><td class="mono"><b>${esc(dn.order.order_number)}</b></td><td>${statusBadge(dn.order.status)}</td><td style="text-align:right;color:var(--text-muted)">→</td></tr>` : ''}
-        ${(dn.invoices || []).map((i) => `<tr class="sc-row-link" data-act="openinv" data-id="${i.id}"><td>🧾 Supplier Invoice</td><td class="mono"><b>${esc(i.invoice_number)}</b></td><td>${statusBadge(i.status)}</td><td style="text-align:right;color:var(--text-muted)">→</td></tr>`).join('')}
-        ${gr ? `<tr class="sc-row-link" data-act="opengr" data-id="${gr.id}"><td>📦 Warehouse Receipt</td><td class="mono"><b>${esc(gr.grn_number || ('#' + gr.id))}</b></td><td>${statusBadge(gr.status)}</td><td style="text-align:right;color:var(--text-muted)">→</td></tr>` : ''}
-      </tbody></table></div></div>
+    <div data-el="dn-chain"></div>
     ${auditCard}`);
   attachmentsPanel(root.querySelector('[data-el="dn-attachments"]'), 'delivery_note', dn.id, { actor: ACTOR });
+  renderDocumentChain(root.querySelector('[data-el="dn-chain"]'), (s, p) => ctx.navigate(s, p),
+    { orderId: dn.order_id, current: { type: 'delivery_note', id: dn.id } });
 
   wire(root, {
     back: () => ctx.navigate('delivery-notes'),

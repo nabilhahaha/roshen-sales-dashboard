@@ -8,6 +8,9 @@ import { mount, delegate, wire, qsa } from '../../utils/dom.js';
 import { esc, money, qty, normRoshen } from '../../utils/format.js';
 import { loading, emptyState, tableWrap } from '../../components/table/table.js';
 import { statusBadge } from '../../components/table/badges.js';
+import { orderBadge } from '../../components/table/table.js';
+import { siBusinessStatus } from '../../models/business-status.js';
+import { renderDocumentChain } from '../../components/related/document-chain.js';
 import { modal } from '../../components/modal/modal.js';
 import { toast } from '../../components/notifications/toast.js';
 import { printSupplierInvoice } from '../../utils/documents.js';
@@ -47,7 +50,7 @@ async function renderList(root, ctx) {
       <td>${esc(i.supplier || '')}</td>
       <td class="num">${money(i.total_taxable)}</td>
       <td class="num">${money(i.grand_total)}</td>
-      <td>${statusBadge(i.status)}</td>
+      <td>${statusBadge(siBusinessStatus(i.status, i.delivery_note && i.delivery_note.status))}</td>
     </tr>`).join('') || '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:22px">No supplier invoices yet — upload one from a delivery note to begin.</td></tr>';
 
   const counts = invoices.reduce((a, i) => { a[i.status] = (a[i.status] || 0) + 1; return a; }, {});
@@ -155,7 +158,7 @@ async function renderInvoiceDetail(root, ctx, invoiceId) {
 
   mount(root, `
     <div class="sc-card-h"><h3>🧾 ${esc(inv.invoice_number)} ${docChip(inv.doc_type)}</h3><div class="sc-spacer"></div>
-      ${statusBadge(inv.status)}<span style="margin-left:8px">${actionBtns}</span>
+      ${statusBadge(siBusinessStatus(inv.status, inv.delivery_note && inv.delivery_note.status))}<span style="margin-left:8px">${actionBtns}</span>
       <button class="sc-btn sm ghost" style="margin-left:10px" data-act="back">← Invoices</button></div>
     <div class="sc-card"><div class="sc-form-grid">
       <div class="sc-field"><label>PI</label><input class="sc-input" readonly value="${esc((inv.order && inv.order.order_number) || '—')}"></div>
@@ -178,13 +181,13 @@ async function renderInvoiceDetail(root, ctx, invoiceId) {
       <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Roshen / Code</th><th>Description</th><th class="num">Invoiced</th><th class="num">Expected</th><th class="num">Price/Case</th><th class="num">Taxable</th><th class="num">VAT</th><th>Match</th></tr></thead><tbody>${lineRows}</tbody></table></div></div>
     ${disputeCard}
     <div data-el="si-attachments"></div>
-    ${inv.order || inv.delivery_note_id ? `<div class="sc-card"><div class="sc-card-h"><h3>🔗 Related Documents</h3></div>
-      <div class="sc-table-wrap"><table class="sc-table"><tbody>
-        ${inv.order ? `<tr class="sc-row-link" data-act="openpo"><td>📄 Purchase Invoice (PI)</td><td class="mono"><b>${esc(inv.order.order_number)}</b></td><td>${statusBadge(inv.order.status)}</td><td style="text-align:right;color:var(--text-muted)">→</td></tr>` : ''}
-        ${inv.delivery_note_id ? `<tr class="sc-row-link" data-act="opendn"><td>🚚 Delivery Note</td><td class="mono"><b>${esc((inv.delivery_note && inv.delivery_note.dn_number) || inv.dn_reference || ('#' + inv.delivery_note_id))}</b></td><td></td><td style="text-align:right;color:var(--text-muted)">→</td></tr>` : ''}
-      </tbody></table></div></div>` : ''}
+    <div data-el="si-chain"></div>
     ${auditCard}`);
   attachmentsPanel(root.querySelector('[data-el="si-attachments"]'), 'supplier_invoice', inv.id, { actor: ACTOR });
+  if (inv.order_id) {
+    renderDocumentChain(root.querySelector('[data-el="si-chain"]'), (s, p) => ctx.navigate(s, p),
+      { orderId: inv.order_id, current: { type: 'supplier_invoice', id: inv.id } });
+  }
 
   wire(root, {
     back: () => ctx.navigate('supplier-invoices'),

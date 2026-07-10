@@ -132,3 +132,32 @@ export async function attachmentHistory(att) {
   }
   return all.filter((r) => related.has(r.id)).sort((a, b) => b.revision - a.revision || b.id - a.id);
 }
+
+// Every attachment across a purchase order's WHOLE document chain (the PO
+// itself, all its delivery notes and supplier invoices) — the same records the
+// per-document panels show, fetched in one sweep so any screen in the chain
+// (e.g. the warehouse receipt, which has no uploaded original of its own) can
+// reference them WITHOUT duplicating files.
+export async function listChainAttachments(orderId) {
+  const c = getClient();
+  const [{ data: dns }, { data: sis }] = await Promise.all([
+    c.from('delivery_notes').select('id,dn_number').eq('order_id', orderId),
+    c.from('supplier_invoices').select('id,invoice_number').eq('order_id', orderId),
+  ]);
+  const dnIds = (dns || []).map((d) => d.id), siIds = (sis || []).map((s) => s.id);
+  const dnName = {}; (dns || []).forEach((d) => { dnName[d.id] = d.dn_number; });
+  const siName = {}; (sis || []).forEach((s) => { siName[s.id] = s.invoice_number; });
+  const sel = 'id,doc_type,doc_id,filename,mime,byte_size,storage_path,revision,uploaded_by,created_at';
+  const qs = [c.from('document_attachments').select(sel).eq('doc_type', 'purchase_order').eq('doc_id', orderId).eq('superseded', false)];
+  if (dnIds.length) qs.push(c.from('document_attachments').select(sel).eq('doc_type', 'delivery_note').in('doc_id', dnIds).eq('superseded', false));
+  if (siIds.length) qs.push(c.from('document_attachments').select(sel).eq('doc_type', 'supplier_invoice').in('doc_id', siIds).eq('superseded', false));
+  const results = await Promise.all(qs);
+  const out = [];
+  results.forEach((r) => (r.data || []).forEach((a) => out.push({
+    ...a,
+    doc_label: a.doc_type === 'purchase_order' ? 'Purchase Order'
+      : a.doc_type === 'delivery_note' ? 'DN ' + (dnName[a.doc_id] || '#' + a.doc_id)
+      : 'Invoice ' + (siName[a.doc_id] || '#' + a.doc_id),
+  })));
+  return out.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+}

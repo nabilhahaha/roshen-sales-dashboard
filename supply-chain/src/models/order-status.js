@@ -19,11 +19,19 @@ export const ORDER_STAGES = [
 ];
 
 // Business-facing display names (display only; stored values unchanged).
+// The business vocabulary — Approved → Shipped → Delivered — comes from
+// models/business-status.js (single source of truth); these map the stored
+// fulfillment states onto it.
 export const ORDER_STATUS_DISPLAY = {
   'PI Imported': 'PI Received',
   'Revision Required': 'Changes Requested',
   'Revision Applied': 'Changes Applied',
+  'PI Approved': 'Approved',
   'Ready for Shipment': 'Ready to Ship',
+  'Partially Delivered': 'Partially Shipped',
+  'Fully Delivered': 'Shipped',
+  'Partially Received': 'Partially Delivered',
+  'Fully Received': 'Delivered',
 };
 
 export const ORDER_STATUS_VARIANT = {

@@ -16,8 +16,10 @@ import { listDeliveryNotes } from '../../services/delivery-note/delivery-note.se
 import { listInvoices } from '../../services/supplier-invoice/supplier-invoice.service.js';
 import { printOrder, exportOrderExcel } from '../../utils/documents.js';
 import { ORDER_STATUS } from '../../models/order-status.js';
+import { canCloseManually, CLOSE_REASONS } from '../../models/business-status.js';
 import { renderOrdersList } from './orders-list.view.js';
 import { listRevisions } from '../../services/purchase-orders/revision.service.js';
+import { renderDocumentChain } from '../../components/related/document-chain.js';
 
 let SKUS = [], SKU_BY_CODE = {};
 const ED = { id: null, readonly: false, header: null, lines: [], pi: null, doc: null };
@@ -55,6 +57,17 @@ async function openOrder(id, mode) {
   mount(ROOT, loading());
   let data; try { data = await Orders.getOrder(id); } catch (e) { toast('Load failed: ' + e.message, 'err'); return; }
   ED.id = data.id; ED.pi = one(data.proforma_invoices); ED.doc = data;
+  // replacement-PO links (both directions) for the closed-order card
+  try {
+    if (data.replaced_by_order_id) {
+      const { data: r } = await (await import('../../services/supabase/client.js')).getClient()
+        .from('supply_orders').select('id,order_number').eq('id', data.replaced_by_order_id).single();
+      ED.doc.replaced_by = r || null;
+    } else ED.doc.replaced_by = null;
+    const { data: repl } = await (await import('../../services/supabase/client.js')).getClient()
+      .from('supply_orders').select('id,order_number').eq('replaced_by_order_id', data.id);
+    ED.doc.replaces = repl || [];
+  } catch (e) { ED.doc.replaced_by = null; ED.doc.replaces = []; }
   ED.readonly = mode === 'view' || data.status !== ORDER_STATUS.DRAFT;
   ED.header = { order_number: data.order_number, order_date: data.order_date, supplier: data.supplier, warehouse: data.warehouse || '', expected_arrival: data.expected_arrival || '', notes: data.notes || '', status: data.status };
   ED.lines = (data.supply_order_items || []).slice().sort((a, b) => (a.line_no || 0) - (b.line_no || 0) || a.id - b.id).map(lineFromDb);
@@ -82,6 +95,26 @@ function paint() {
     banner = `<div class="sc-locked-banner">🔒 This PI is <b>&nbsp;${esc(h.status)}&nbsp;</b> and locked.</div>`;
   else if (ro)
     banner = `<div class="sc-locked-banner" style="background:rgba(143,163,189,.12);border-color:var(--border);color:var(--text-secondary)">👁 View mode <button class="sc-btn sm" style="margin-left:6px" data-act="unlock">✏️ Edit</button></div>`;
+
+  // manually closed order — the close record (business action, fully audited)
+  let closedCard = '';
+  const dd = ED.doc;
+  if (dd && dd.close_reason && ['Closed', 'Financially Closed'].includes(dd.status)) {
+    closedCard = `<div class="sc-card" style="border-left:3px solid #E03131">
+      <div class="sc-card-h"><h3>✖ Purchase Order Closed</h3><div class="sc-spacer"></div>
+        <span style="font-size:11.5px;color:var(--text-muted)">${esc(String(dd.closed_at || '').slice(0, 16).replace('T', ' '))}</span></div>
+      <div style="display:flex;gap:22px;flex-wrap:wrap;font-size:12.5px">
+        <div><span class="erp-mini">Close Reason</span><br><b>${esc(dd.close_reason)}</b></div>
+        <div><span class="erp-mini">Closed By</span><br><b>${esc(dd.closed_by || '—')}</b></div>
+        ${dd.close_comments ? `<div style="max-width:420px"><span class="erp-mini">Comments</span><br>${esc(dd.close_comments)}</div>` : ''}
+        ${dd.replaced_by ? `<div><span class="erp-mini">Replaced By</span><br><button class="sc-btn sm" data-act="goorder" data-id="${dd.replaced_by.id}">→ ${esc(dd.replaced_by.order_number)}</button></div>` : ''}
+      </div>
+      <p style="font-size:11.5px;color:var(--text-secondary);margin:10px 0 0">Undelivered quantities are <b>Cancelled</b>. No new delivery notes or supplier invoices can be created against this order. All history is preserved.</p>
+    </div>`;
+  }
+  const replacesChips = dd && dd.replaces && dd.replaces.length
+    ? `<div class="sc-card" style="padding:10px 16px;font-size:12.5px">↩ This order replaces:
+        ${dd.replaces.map((r) => `<button class="sc-btn sm ghost" data-act="goorder" data-id="${r.id}">${esc(r.order_number)}</button>`).join(' ')}</div>` : '';
 
   // Supplier document header — the PI as the business document reads
   // (supplier / customer / document details / totals), present whenever this
@@ -127,9 +160,11 @@ function paint() {
 
   mount(ROOT, `
     <div class="sc-card-h"><h3>${isNew ? '➕ New Purchase Invoice (PI)' : '📄 Purchase Invoice (PI) ' + esc(h.order_number)}</h3>
-      <div class="sc-spacer"></div>${orderBadge(h.status)}
+      <div class="sc-spacer"></div>${orderBadge(ED.doc || h.status)}
       <button class="sc-btn sm ghost" style="margin-left:10px" data-act="back">← All PIs</button></div>
     ${banner}
+    ${closedCard}
+    ${replacesChips}
     <div class="sc-card"><div class="sc-form-grid">
       ${field('Order Number', `<input class="sc-input" readonly value="${esc(isNew ? '(auto-generated on save)' : h.order_number)}">`)}
       ${field('Order Date', `<input data-el="order_date" type="date" class="sc-input" ${dis} value="${esc(h.order_date || '')}">`)}
@@ -184,7 +219,11 @@ function paintDashboard(el, dash) {
   const visible = hideDone ? dash.rows.filter((r) => r.line_status !== 'Completed') : dash.rows;
   const bar = (p) => `<div style="display:flex;align-items:center;gap:8px"><div style="flex:1;height:6px;border-radius:4px;background:var(--border-light);overflow:hidden">
       <div style="width:${p}%;height:100%;background:${p >= 100 ? '#2FB344' : '#1971C2'}"></div></div><span style="font-size:11px;color:var(--text-muted);min-width:34px">${p}%</span></div>`;
-  const lineChip = (st) => `<span class="sc-badge ${st === 'Completed' ? 'confirmed' : st === 'Partial' ? 'pi' : 'none'}">${esc(st)}</span>`;
+  // a manually closed PO: whatever was not delivered is Cancelled
+  const closedManually = ED.doc && ED.doc.close_reason && ['Closed', 'Financially Closed'].includes(ED.doc.status);
+  const lineChip = (st, remaining) => (closedManually && Number(remaining) > 0)
+    ? `<span class="sc-badge closed">${Number(remaining) > 0 && st !== 'Open' ? 'Partial · rest Cancelled' : 'Cancelled'}</span>`
+    : `<span class="sc-badge ${st === 'Completed' ? 'confirmed' : st === 'Partial' ? 'pi' : 'none'}">${esc(st)}</span>`;
   const invChip = (st) => st === '—' ? '' : `<span class="sc-badge ${st === 'Matched' ? 'confirmed' : st === 'Disputed' ? 'closed' : st === 'Partially Matched' ? 'pi' : 'none'}">${esc(st)}</span>`;
   const rows = visible.map((r) => `<tr class="sc-row-link" data-act="drill" data-id="${DASH_ROWS.indexOf(r)}">
       <td class="mono"><b>${esc(r.item_code || '')}</b><div style="font-size:10.5px;color:var(--text-muted)">${esc(String(r.roshen_id || ''))}</div></td>
@@ -197,7 +236,7 @@ function paintDashboard(el, dash) {
       <td class="num">${r.dn_count || '—'}</td>
       <td style="font-size:11.5px">${r.last_delivery_at ? esc(String(r.last_delivery_at).slice(0, 10)) : '—'}
         ${r.expected_arrival ? `<div style="font-size:10px;color:var(--text-muted)">next ETA ${esc(String(r.expected_arrival).slice(0, 16).replace('T', ' '))}</div>` : ''}</td>
-      <td>${lineChip(r.line_status)} ${invChip(r.invoice_status)}${r.shipment_status !== '—' && r.shipment_status !== 'Received' ? ' ' + statusBadge(r.shipment_status) : ''}</td></tr>`).join('');
+      <td>${lineChip(r.line_status, r.remaining_cases)} ${invChip(r.invoice_status)}${r.shipment_status !== '—' && r.shipment_status !== 'Received' ? ' ' + statusBadge(r.shipment_status) : ''}</td></tr>`).join('');
   el.innerHTML = `<div class="sc-card">
     <div class="sc-card-h"><h3>📦 Delivery Progress</h3><div class="sc-spacer"></div>
       <span style="font-size:12.5px;color:var(--text-secondary)">Total Ordered <b>${qty(s.ordered)}</b> · Total Received <b>${qty(s.received)}</b> · Remaining <b>${qty(s.remaining)}</b> · Overall <b>${pct}%</b> · ${orderBadge(ED.header.status)}</span></div>
@@ -239,23 +278,12 @@ function openLineDrill(r) {
   [{ label: 'Close', cls: 'ghost' }]);
 }
 
-// Related Documents — every DN and Supplier Invoice linked to this PI, with
-// one-click navigation. Loaded after paint so the PI screen stays fast.
+// Related Documents — the complete permanent document chain (PO → DNs → GRNs
+// → SIs → replacement POs), shared component with one-click navigation.
 async function renderRelatedDocs() {
   const el = qs('[data-el="related"]', ROOT);
   if (!el || !ED.id) return;
-  let dns = [], sis = [];
-  try { [dns, sis] = await Promise.all([listDeliveryNotes(ED.id), listInvoices(ED.id)]); } catch (e) { return; }
-  if (!dns.length && !sis.length) return;
-  const dnRows = dns.map((d) => `<tr class="sc-row-link" data-act="opendn" data-id="${d.id}">
-      <td>🚚 Delivery Note</td><td class="mono"><b>${esc(d.dn_number)}</b></td>
-      <td>${esc(d.dn_date || '')}</td><td>${statusBadge(d.status)}</td><td style="text-align:right;color:var(--text-muted)">→</td></tr>`).join('');
-  const siRows = sis.map((i) => `<tr class="sc-row-link" data-act="opensi" data-id="${i.id}">
-      <td>🧾 Supplier Invoice</td><td class="mono"><b>${esc(i.invoice_number)}</b></td>
-      <td>${esc(i.invoice_date || '')}</td><td>${statusBadge(i.status)}</td><td style="text-align:right;color:var(--text-muted)">→</td></tr>`).join('');
-  el.innerHTML = `<div class="sc-card"><div class="sc-card-h"><h3>🔗 Related Documents</h3><div class="sc-spacer"></div>
-      <span style="font-size:11.5px;color:var(--text-muted)">${dns.length} delivery note(s) · ${sis.length} invoice(s)</span></div>
-    <div class="sc-table-wrap"><table class="sc-table"><tbody>${dnRows}${siRows}</tbody></table></div></div>`;
+  await renderDocumentChain(el, (s, p) => CTX.navigate(s, p), { orderId: ED.id, current: { type: 'purchase_order', id: ED.id } });
 }
 
 // Audit trail — the PI's lifecycle from the data it already carries:
@@ -264,13 +292,24 @@ async function renderAuditTrail() {
   const el = qs('[data-el="audit"]', ROOT);
   if (!el || !ED.id || !ED.doc) return;
   const d = ED.doc;
-  let revs = [];
+  let revs = [], poAudit = [];
   try { revs = await listRevisions(ED.id); } catch (e) { revs = []; }
+  try { poAudit = await Orders.listOrderAudit(ED.id); } catch (e) { poAudit = []; }
   const fmt = (t) => esc(String(t || '').slice(0, 16).replace('T', ' '));
   const entries = [];
   if (d.created_at) entries.push({ icon: '➕', label: 'Created' + (d.source_filename ? ' from ' + d.source_filename : ''), by: d.created_by, at: d.created_at });
   (revs || []).forEach((r) => entries.push({ icon: '✏️', label: `Revision ${r.revision_no != null ? '#' + r.revision_no : ''} applied`, by: r.created_by, at: r.created_at }));
   if (d.approved_at) entries.push({ icon: '✅', label: 'Approved & locked', by: null, at: d.approved_at });
+  (poAudit || []).forEach((a) => {
+    const det = a.details || {};
+    entries.push({
+      icon: a.action === 'closed' ? '✖' : '🔖',
+      label: a.action === 'closed'
+        ? `Closed — ${det.reason || ''}${det.comments ? ' · ' + det.comments : ''}${det.replaced_by_order_id ? ' · replaced by PO #' + det.replaced_by_order_id : ''}`
+        : a.action,
+      by: a.actor, at: a.created_at,
+    });
+  });
   entries.push({ icon: '🔖', label: 'Current status: ' + (d.status || ''), by: null, at: d.updated_at });
   el.innerHTML = `<div class="sc-card"><div class="sc-card-h"><h3>🕓 Audit Trail</h3><div class="sc-spacer"></div>
       <span class="sc-badge none">${entries.length}</span></div>
@@ -292,7 +331,10 @@ function renderActions() {
                   : '<button class="sc-btn primary" data-act="import">📥 Import PI</button>';
   } else if (h.status === ORDER_STATUS.PI_IMPORTED || h.status === ORDER_STATUS.PI_APPROVED) {
     if (ED.pi) btns += '<button class="sc-btn primary" data-act="openPI">🧾 Open PI Validation</button>';
-    if (h.status === ORDER_STATUS.PI_APPROVED) btns += '<button class="sc-btn" data-act="close">🏁 Close Order</button>';
+  }
+  // manual close — available while the order is not fully delivered/closed
+  if (ED.id && ED.readonly && canCloseManually({ status: h.status })) {
+    btns += '<button class="sc-btn ghost" style="color:#E03131" data-act="close">✖ Close Purchase Order</button>';
   }
   if (ED.id) btns += `<div style="margin-left:auto;display:flex;gap:8px">
     <button class="sc-btn ghost" data-act="dup">⧉ Duplicate</button>
@@ -463,6 +505,35 @@ const ACTIONS = {
   removeLine: (d) => { ED.lines.splice(+d.id, 1); renderLines(); },
   print: () => { if (!printOrder(pseudoOrder())) toast('Allow pop-ups to print', 'err'); },
   xls: () => { exportOrderExcel(pseudoOrder()); toast('Exported', 'ok'); },
-  close: () => modal('Close order?', 'Mark this order as Closed — this completes the Purchase Order → PI lifecycle.',
-    [{ label: 'Close Order', cls: 'primary', onClick: async () => { try { await Orders.setStatus(ED.id, ORDER_STATUS.CLOSED); } catch (e) { toast(e.message, 'err'); return; } toast('Order closed', 'ok'); await openOrder(ED.id, 'view'); } }, { label: 'Cancel', cls: 'ghost' }]),
+  goorder: (d) => CTX.navigate('purchase-orders', { orderId: +d.id, mode: 'view' }),
+  close: async () => {
+    let candidates = [];
+    try { candidates = await Orders.listReplacementCandidates(ED.id); } catch (e) { /* optional */ }
+    modal(`Close Purchase Order ${esc(ED.header.order_number)}?`, `
+      <p style="font-size:12.5px;color:var(--text-secondary);margin-top:0">A business action, not a delete: the order keeps its history, undelivered quantities become <b>Cancelled</b>, no new delivery notes or supplier invoices can be created, and the order moves to Purchase History.</p>
+      <div class="sc-field"><label>Close Reason *</label>
+        <select class="sc-select" data-cl="reason"><option value="">— select a reason —</option>
+          ${CLOSE_REASONS.map((r) => `<option>${esc(r)}</option>`).join('')}</select></div>
+      <div class="sc-field" style="margin-top:8px"><label>Comments <span style="color:var(--text-muted)">(required for “Other”)</span></label>
+        <textarea class="sc-input" data-cl="comments" rows="2"></textarea></div>
+      <div class="sc-field" style="margin-top:8px"><label>Closed By *</label>
+        <input class="sc-input" data-cl="by" placeholder="Your name"></div>
+      <div class="sc-field" style="margin-top:8px"><label>Replaced by Purchase Order</label>
+        <select class="sc-select" data-cl="repl"><option value="">— none —</option>
+          ${candidates.map((r) => `<option value="${r.id}">${esc(r.order_number)}</option>`).join('')}</select></div>`,
+      [{ label: '✖ Close Purchase Order', cls: 'primary', onClick: async () => {
+          // the modal DOM persists after close() — inputs are still readable
+          const v = (k) => { const n = document.querySelector(`[data-cl="${k}"]`); return n ? n.value.trim() : ''; };
+          const reason = v('reason'), comments = v('comments'), by = v('by'), repl = v('repl');
+          if (!reason) return toast('Select a close reason — the order was NOT closed', 'err');
+          if (reason === 'Other' && !comments) return toast('Add a comment explaining the reason — the order was NOT closed', 'err');
+          if (!by) return toast('Enter who is closing the order — the order was NOT closed', 'err');
+          try {
+            await Orders.closeOrderManually(ED.id, { reason, comments, closedBy: by, replacedByOrderId: repl ? +repl : null });
+          } catch (e) { return toast(e.message || String(e), 'err'); }
+          toast('Purchase order closed — moved to Purchase History', 'ok');
+          await openOrder(ED.id, 'view');
+        } },
+       { label: 'Cancel', cls: 'ghost' }]);
+  },
 };
