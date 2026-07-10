@@ -108,5 +108,5 @@ export function parseDeliveryNote(arrayBuffer, XLSX) {
     customer_cr: headerValue(grid, /customer\s*cr/i, maxRow, /\d/),
   };
 
-  return { sheetName, header, columns: parsed.columns, rows: parsed.rows, headerRowIndex: parsed.headerRowIndex };
+  return { sheetName, header, columns: parsed.columns, rows: parsed.rows, headerRowIndex: parsed.headerRowIndex, numberLocale: parsed.numberLocale };
 }

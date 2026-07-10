@@ -12,11 +12,15 @@ function fieldIndex(mapByIdx) {
   return f;
 }
 
-// opts: { rows, mapByIdx, skuIndex:{byRoshen,byCode}, fulfillment:[view rows], asOf }
+// opts: { rows, mapByIdx, skuIndex:{byRoshen,byCode}, fulfillment:[view rows],
+//         asOf, numberLocale } — numberLocale is the source document's written
+//         number format (detected at parse time) so text quantities like
+//         "1.260" are read per the document's own locale, never guessed.
 export function buildDeliveryNote(opts) {
-  const { rows, mapByIdx, skuIndex = {}, fulfillment = [], asOf } = opts;
+  const { rows, mapByIdx, skuIndex = {}, fulfillment = [], asOf, numberLocale = null } = opts;
   const fi = fieldIndex(mapByIdx);
   const val = (row, field) => (fi[field] != null ? row[fi[field]] : '');
+  const numOf = (v) => parseNumber(v, numberLocale);
   const byRoshen = skuIndex.byRoshen || {};
   const byCode = skuIndex.byCode || {};
 
@@ -38,9 +42,9 @@ export function buildDeliveryNote(opts) {
     if (!key) return; // skip rows with no usable key
 
     const sku = byRoshen[roshen] || byCode[code] || null;
-    const cases = parseNumber(val(row, 'cartons')) || 0;
-    const boxes = parseNumber(val(row, 'boxes'));
-    const pieces = parseNumber(val(row, 'pieces'));
+    const cases = numOf(val(row, 'cartons')) || 0;
+    const boxes = numOf(val(row, 'boxes'));
+    const pieces = numOf(val(row, 'pieces'));
     const expiry = toISO(val(row, 'expiry_date'));
     const mfg = toISO(val(row, 'manufacturing_date'));
     // Skip footer / non-item rows: a real batch line has a Roshen ID, a
@@ -93,6 +97,15 @@ export function buildDeliveryNote(opts) {
     return { ...line, totalCases, po, kind, overDelivery, belowShelf };
   });
 
+  // Red flag, never auto-corrected: cartons are whole units — a fractional
+  // quantity almost always means the document's number format was misread.
+  const fractionalQty = [];
+  out.forEach((l) => l.batches.forEach((b) => {
+    if (b.cases > 0 && Math.abs(b.cases - Math.round(b.cases)) > 1e-9) {
+      fractionalQty.push({ line_key: l.line_key, roshen_id: l.roshen_id, batch_no: b.batch_no, cases: b.cases });
+    }
+  }));
+
   const summary = {
     lineCount: out.length,
     batchCount: out.reduce((a, l) => a + l.batches.length, 0),
@@ -101,6 +114,7 @@ export function buildDeliveryNote(opts) {
     overDelivery: out.filter((l) => l.overDelivery).length,
     belowShelfLife: out.reduce((a, l) => a + l.batches.filter((b) => b.belowMinimum).length, 0),
     totalCartons: out.reduce((a, l) => a + l.totalCases, 0),
+    fractionalQty,
   };
   summary.ok = summary.additional === 0 && summary.overDelivery === 0;
   return { lines: out, summary };

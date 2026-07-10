@@ -42,8 +42,9 @@ export async function createGoodsReceiptFromDeliveryNote(deliveryNoteId, opts = 
   if (!(await deliveryNoteHasMatchedInvoice(deliveryNoteId))) {
     throw new Error('This delivery note has no matched supplier invoice yet. Match an invoice before receiving.');
   }
-  // one GR per DN
-  const { data: existing } = await c.from('goods_receipts').select('id').eq('delivery_note_id', deliveryNoteId);
+  // one ACTIVE GR per DN — a cancelled (reversed) receipt does not block
+  // re-receiving the delivery after its data was corrected
+  const { data: existing } = await c.from('goods_receipts').select('id').eq('delivery_note_id', deliveryNoteId).neq('status', 'Cancelled');
   if (existing && existing.length) return getGoodsReceipt(existing[0].id);
 
   const { data: dn, error: e0 } = await c.from('delivery_notes')
@@ -69,7 +70,7 @@ export async function createGoodsReceiptFromDeliveryNote(deliveryNoteId, opts = 
   if (e1) {
     // lost a create race (unique on delivery_note_id) → return the winner
     if (e1.code === '23505') {
-      const { data: won } = await c.from('goods_receipts').select('id').eq('delivery_note_id', deliveryNoteId).limit(1);
+      const { data: won } = await c.from('goods_receipts').select('id').eq('delivery_note_id', deliveryNoteId).neq('status', 'Cancelled').limit(1);
       if (won && won.length) return getGoodsReceipt(won[0].id);
     }
     throw e1;

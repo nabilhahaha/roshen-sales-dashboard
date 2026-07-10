@@ -12,17 +12,30 @@
 const norm = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
 const normKey = (s) => norm(s).toLowerCase();
 
-// European / mixed number parsing: "4050,00" -> 4050, "386 228,96" -> 386228.96
+// European / mixed number parsing: "4050,00" -> 4050, "386 228,96" -> 386228.96.
+// The document's written-number locale is detected once per parse (parseGrid)
+// so a lone separator ("1.260" = 1260 in an EU document) is never misread as a
+// decimal point. Numbers typed as numbers pass through untouched.
+import { detectNumberLocale } from '../../utils/format.js';
+let DOC_LOCALE = null;   // set per parseGrid() call from the document itself
 export function parseNum(v) {
   if (v == null) return null;
   if (typeof v === 'number') return v;
   let s = String(v).replace(/ /g, ' ').trim();
   if (!s) return null;
   s = s.replace(/[^0-9.,\-\s]/g, '').replace(/\s/g, '');
-  const hasComma = s.indexOf(',') >= 0;
-  const hasDot = s.indexOf('.') >= 0;
-  if (hasComma && hasDot) s = s.replace(/\./g, '').replace(',', '.');
-  else if (hasComma) s = s.replace(',', '.');
+  if (!s) return null;
+  if (DOC_LOCALE === 'eu') s = s.replace(/\./g, '').replace(',', '.');
+  else if (DOC_LOCALE === 'us') s = s.replace(/,/g, '');
+  else {
+    const hasComma = s.indexOf(',') >= 0;
+    const hasDot = s.indexOf('.') >= 0;
+    if (hasComma && hasDot) {
+      // both separators: the LAST one is the decimal point in either format
+      if (s.lastIndexOf('.') > s.lastIndexOf(',')) s = s.replace(/,/g, '');
+      else s = s.replace(/\./g, '').replace(',', '.');
+    } else if (hasComma) s = s.replace(',', '.');
+  }
   const n = parseFloat(s);
   return isNaN(n) ? null : n;
 }
@@ -98,6 +111,8 @@ function parseDate(str) {
 }
 
 export function parseGrid(grid) {
+  // detect the document's written-number locale from all its cell strings
+  DOC_LOCALE = detectNumberLocale(grid.flatMap((r) => (r || []).filter((v) => typeof v === 'string')));
   const hIdx = findHeaderRow(grid);
   if (hIdx < 0) throw new Error('Could not locate the items table header row in this Excel file.');
   const cols = mapColumns(grid[hIdx]);

@@ -100,17 +100,23 @@ export function parseInvoiceLines(lines) {
   lines.forEach((l) => {
     const m = l.text.match(/^(\d{1,3})\s+(.+)/);
     if (!m) return;
-    // Capture and strip any per-line tax-rate token (e.g. "15%" / "15.00%") so
-    // it never contaminates the financial-column extraction below.
-    const pctMatch = m[2].match(/(\d{1,2}(?:\.\d+)?)\s*%/);
+    // Capture per-line percent tokens and strip them so they never contaminate
+    // the financial-column extraction below. NOTE: product names also carry
+    // percentages ("…SOFT CARAMEL (52%)…"), so a token is only accepted as the
+    // VAT rate when it reproduces the row's own vat/taxable ratio — otherwise
+    // the rate is computed from the row's amounts.
+    const pctTokens = [...m[2].matchAll(/(\d{1,2}(?:\.\d+)?)\s*%/g)].map((x) => Number(x[1]));
     const body = m[2].replace(/\d{1,2}(?:\.\d+)?\s*%/g, ' ');
     const n = numsIn(body);
     if (n.length < 5) return;
     const [unit_price, quantity, taxable_amount, vat_amount, line_total] = n.slice(-5);
     if (!(taxable_amount > 0)) return;
     const description = body.replace(/[\d.,]+/g, ' ').replace(/\bSAR\b/gi, ' ').replace(/\s+/g, ' ').trim();
-    const vat_percent = pctMatch ? Number(pctMatch[1])
-      : (taxable_amount ? Math.round((vat_amount / taxable_amount) * 100) : null);
+    const computedPct = taxable_amount ? +((vat_amount / taxable_amount) * 100).toFixed(2) : null;
+    const tokenPct = pctTokens.find((p) => computedPct != null && Math.abs(p - computedPct) <= 1);
+    const vat_percent = tokenPct != null ? tokenPct
+      : computedPct != null ? computedPct
+      : pctTokens.length === 1 ? pctTokens[0] : null;
     items.push({ idx: Number(m[1]), description, unit_price, quantity, taxable_amount, vat_amount, line_total, vat_percent });
   });
 

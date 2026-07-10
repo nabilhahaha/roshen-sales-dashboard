@@ -83,11 +83,25 @@ export async function startInvoiceUpload(root, ctx, dnId) {
     rd.onload = async (e) => {
       try { state.parsed = await parseInvoicePdf(e.target.result, window.pdfjsLib); }
       catch (err) { toast('Could not read PDF: ' + (err.message || err), 'err'); return uploadStep(); }
-      // suggest a DN-line binding per invoice line (by description similarity)
+      // Suggest a DN-line binding per invoice line. VALUE IDENTITY first —
+      // an invoice row belongs to the DN line whose delivered cartons × PO
+      // price reproduce the row's own amounts — then description similarity
+      // for the rest. Each DN line binds at most ONCE: sibling products with
+      // near-identical names can no longer both land on the same line.
+      const used = new Set();
       state.parsed.lines.forEach((il, i) => {
+        const exact = dnLines.filter((dl) => !used.has(dl.key) && (
+          (il.taxable_amount != null && Math.abs(dl.lineNet - il.taxable_amount) <= 0.01) ||
+          (il.quantity != null && Math.abs(il.quantity - dl.cartons) <= 0.001 &&
+           il.unit_price != null && Math.abs(il.unit_price - dl.price) <= 0.01)));
+        if (exact.length === 1) { state.binds[i] = exact[0].key; used.add(exact[0].key); }
+      });
+      state.parsed.lines.forEach((il, i) => {
+        if (state.binds[i]) return;
         let best = null, score = 0.15;
-        dnLines.forEach((dl) => { const s = similarity(dl.description, il.description); if (s > score) { score = s; best = dl.key; } });
+        dnLines.forEach((dl) => { if (used.has(dl.key)) return; const s = similarity(dl.description, il.description); if (s > score) { score = s; best = dl.key; } });
         state.binds[i] = best;
+        if (best) used.add(best);
       });
       reviewStep();
     };
@@ -207,8 +221,12 @@ export async function startInvoiceUpload(root, ctx, dnId) {
         return {
           roshen_id: dl ? dl.roshen_id : null, item_code: dl ? dl.item_code : null,
           description: il.description,
-          invoiced_cases: dl ? dl.cartons : 0,           // ledger balance is in cartons
-          case_price: dl ? dl.price : null,
+          // the INVOICE's own quantity and unit price are the stored record —
+          // never the bound DN line's values. The match engine compares them
+          // to the DN (expected_cases / expected_case_price) and raises the
+          // variance; copying the DN's numbers here used to hide it.
+          invoiced_cases: il.quantity != null ? il.quantity : (dl ? dl.cartons : 0),
+          case_price: il.unit_price != null ? il.unit_price : (dl ? dl.price : null),
           taxable_amount: il.taxable_amount, vat_percent: il.vat_percent, vat_amount: il.vat_amount, line_total: il.line_total,
         };
       });
