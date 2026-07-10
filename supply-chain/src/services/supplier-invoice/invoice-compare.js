@@ -6,9 +6,7 @@
 // (delivered cartons × PO case price). Document references (DN / PO) are checked
 // for identity. Line-to-SKU binding is done by the user in the validation
 // screen — the system never silently matches by description.
-import { approxEq } from '../../utils/format.js';
-
-const digits = (s) => String(s || '').replace(/\D/g, '');
+import { approxEq, docRefMatches } from '../../utils/format.js';
 
 // dnCtx: { dnNumber, poReference, expectedNet, lineCount }
 // parsed: output of the invoice parser (header + totals + lines)
@@ -20,8 +18,9 @@ export function compareInvoiceToDeliveryNote(parsed, dnCtx) {
 
   const dnRef = parsed.header && parsed.header.dn_reference;
   const poRef = parsed.header && parsed.header.po_reference;
-  const refOk = dnRef ? digits(dnRef) === digits(dnCtx.dnNumber) : null;
-  const poOk = poRef && dnCtx.poReference ? digits(poRef) === digits(dnCtx.poReference) : null;
+  // references are normalized before comparison — "DN-745" ≡ "DN-745/2026"
+  const refOk = dnRef ? docRefMatches(dnCtx.dnNumber, dnRef) : null;
+  const poOk = poRef && dnCtx.poReference ? docRefMatches(dnCtx.poReference, poRef) : null;
 
   const valueOk = approxEq(invoiceNet, expectedNet, tol);
   const vatOk = approxEq(invoiceVat, invoiceNet * 0.15, Math.max(1, invoiceNet * 0.015));

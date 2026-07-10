@@ -4,7 +4,7 @@
 // Note. Each DN needs exactly one matched invoice before its Goods Receipt can
 // be released.
 import { getClient, one } from '../supabase/client.js';
-import { lineKey as keyOf } from '../../utils/format.js';
+import { lineKey as keyOf, docRefMatches } from '../../utils/format.js';
 import { compareInvoiceToDeliveryNote } from './invoice-compare.js';
 import { matchInvoiceLines } from './invoice-line-match.js';
 import { markDnReadyForDelivery } from '../delivery-note/delivery-note.service.js';
@@ -89,11 +89,7 @@ async function deliveryNoteMatchContext(deliveryNoteId) {
 // DN-761"); system documents carry the year suffix (KS-417/2026,
 // DN-761/2026). A reference matches a document number when it is equal or
 // the number continues with "/…".
-const refMatches = (num, ref) => {
-  if (!num || !ref) return false;
-  const n = String(num).trim().toLowerCase(), r = String(ref).trim().toLowerCase();
-  return n === r || n.startsWith(r + '/');
-};
+const refMatches = docRefMatches;   // one canonical rule everywhere
 
 // Resolve the PI (supply_orders) and Delivery Note this invoice references.
 // Returns { order, dn } — either may be null when the document isn't in the
