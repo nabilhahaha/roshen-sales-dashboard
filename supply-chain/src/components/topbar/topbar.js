@@ -8,7 +8,7 @@ export function topbarHtml() {
   const t = getTheme();
   return `
     <header class="erp-topbar">
-      <div class="erp-crumb"><span class="erp-crumb-co">Roshen / Relia</span> <span class="sep">/</span> <b data-el="title">Dashboard</b></div>
+      <div class="erp-crumb"><span class="erp-crumb-co">Roshen / Relia</span> <span class="sep">/</span> <b data-el="title">Purchase Orders</b></div>
       <div class="erp-search"><span>🔎</span><input data-el="search" placeholder="Search SKUs, orders…" autocomplete="off"></div>
       <div class="erp-topbar-right">
         <button class="erp-iconbtn" data-el="theme" title="${themeTitle(t)}" aria-label="Toggle theme">${themeIcon(t)}</button>

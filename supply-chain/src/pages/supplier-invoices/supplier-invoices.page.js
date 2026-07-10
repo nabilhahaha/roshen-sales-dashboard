@@ -157,7 +157,6 @@ async function renderInvoiceDetail(root, ctx, invoiceId) {
     <div class="sc-card-h"><h3>🧾 ${esc(inv.invoice_number)} ${docChip(inv.doc_type)}</h3><div class="sc-spacer"></div>
       ${statusBadge(inv.status)}<span style="margin-left:8px">${actionBtns}</span>
       <button class="sc-btn sm ghost" style="margin-left:10px" data-act="back">← Invoices</button></div>
-    ${matchBanner}
     <div class="sc-card"><div class="sc-form-grid">
       <div class="sc-field"><label>PI</label><input class="sc-input" readonly value="${esc((inv.order && inv.order.order_number) || '—')}"></div>
       <div class="sc-field"><label>Delivery Note</label><input class="sc-input" readonly value="${esc((inv.delivery_note && inv.delivery_note.dn_number) || inv.dn_reference || '—')}"></div>
@@ -173,16 +172,17 @@ async function renderInvoiceDetail(root, ctx, invoiceId) {
       <div class="sc-field"><label>Buyer VAT (ZATCA)</label><input class="sc-input" readonly value="${esc(z.buyer_vat || inv.buyer_vat || '—')}"></div>
     </div>
     ${inv.doc_notes ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-top:8px">Document notes: <i>${esc(inv.doc_notes)}</i></div>` : ''}</div>
-    ${inv.order || inv.delivery_note_id ? `<div class="sc-card"><div class="sc-card-h"><h3>🔗 Related Documents</h3></div>
-      <div class="sc-table-wrap"><table class="sc-table"><tbody>
-        ${inv.order ? `<tr class="sc-row-link" data-act="openpo"><td>📄 Purchase Invoice (PI)</td><td class="mono"><b>${esc(inv.order.order_number)}</b></td><td>${statusBadge(inv.order.status)}</td><td style="text-align:right;color:var(--text-muted)">→</td></tr>` : ''}
-        ${inv.delivery_note_id ? `<tr class="sc-row-link" data-act="opendn"><td>🚚 Delivery Note</td><td class="mono"><b>${esc((inv.delivery_note && inv.delivery_note.dn_number) || inv.dn_reference || ('#' + inv.delivery_note_id))}</b></td><td></td><td style="text-align:right;color:var(--text-muted)">→</td></tr>` : ''}
-      </tbody></table></div></div>` : ''}
+    ${matchBanner}
     <div class="sc-card"><div class="sc-card-h"><h3>📦 Invoice Lines vs Delivery</h3><div class="sc-spacer"></div>
       <span style="font-size:11px;color:var(--text-muted)">billed vs delivered, at PI prices</span></div>
       <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Roshen / Code</th><th>Description</th><th class="num">Invoiced</th><th class="num">Expected</th><th class="num">Price/Case</th><th class="num">Taxable</th><th class="num">VAT</th><th>Match</th></tr></thead><tbody>${lineRows}</tbody></table></div></div>
     ${disputeCard}
     <div data-el="si-attachments"></div>
+    ${inv.order || inv.delivery_note_id ? `<div class="sc-card"><div class="sc-card-h"><h3>🔗 Related Documents</h3></div>
+      <div class="sc-table-wrap"><table class="sc-table"><tbody>
+        ${inv.order ? `<tr class="sc-row-link" data-act="openpo"><td>📄 Purchase Invoice (PI)</td><td class="mono"><b>${esc(inv.order.order_number)}</b></td><td>${statusBadge(inv.order.status)}</td><td style="text-align:right;color:var(--text-muted)">→</td></tr>` : ''}
+        ${inv.delivery_note_id ? `<tr class="sc-row-link" data-act="opendn"><td>🚚 Delivery Note</td><td class="mono"><b>${esc((inv.delivery_note && inv.delivery_note.dn_number) || inv.dn_reference || ('#' + inv.delivery_note_id))}</b></td><td></td><td style="text-align:right;color:var(--text-muted)">→</td></tr>` : ''}
+      </tbody></table></div></div>` : ''}
     ${auditCard}`);
   attachmentsPanel(root.querySelector('[data-el="si-attachments"]'), 'supplier_invoice', inv.id, { actor: ACTOR });
 

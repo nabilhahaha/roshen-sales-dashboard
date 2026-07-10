@@ -21,12 +21,12 @@ import { renderDocumentPreview } from './pi-document-preview.view.js';
 export async function startImportFlow(root, ctx, arrayBuffer, filename, originalFile) {
   let parsed;
   try { parsed = parseOrderWorkbook(arrayBuffer, window.XLSX); }
-  catch (e) { toast('Could not read Excel: ' + (e.message || e), 'err'); return ctx.navigate('order-history'); }
-  if (!parsed.columns.length || !parsed.rows.length) { toast('No data rows found in the Excel file', 'err'); return ctx.navigate('order-history'); }
+  catch (e) { toast('Could not read Excel: ' + (e.message || e), 'err'); return ctx.navigate('purchase-orders'); }
+  if (!parsed.columns.length || !parsed.rows.length) { toast('No data rows found in the Excel file', 'err'); return ctx.navigate('purchase-orders'); }
 
   let skus;
   try { skus = await listSkus(); }
-  catch (e) { toast('Could not load SKU Master: ' + (e.message || e), 'err'); return ctx.navigate('order-history'); }
+  catch (e) { toast('Could not load SKU Master: ' + (e.message || e), 'err'); return ctx.navigate('purchase-orders'); }
 
   // The real business document first: if the file is a supplier PI (header
   // block + document number + items table), import it exactly as it reads —
@@ -39,7 +39,7 @@ export async function startImportFlow(root, ctx, arrayBuffer, filename, original
     renderDocumentPreview(root, {
       plan, filename,
       handlers: {
-        cancel: () => ctx.navigate('order-history'),
+        cancel: () => ctx.navigate('purchase-orders'),
         manual: () => showWizard(),
         confirm: (p) => createFromDocument(p),
       },
@@ -71,7 +71,7 @@ export async function startImportFlow(root, ctx, arrayBuffer, filename, original
     renderWizard(root, {
       columns: parsed.columns, mapByIdx, savedMappings: listMappings(), filename,
       handlers: {
-        cancel: () => ctx.navigate('order-history'),
+        cancel: () => ctx.navigate('purchase-orders'),
         continue: (m) => { mapByIdx = m; showPreview(); },
         saveMapping: (name, m) => {
           if (!name) { toast('Enter a mapping name first', 'err'); return; }
@@ -97,7 +97,7 @@ export async function startImportFlow(root, ctx, arrayBuffer, filename, original
       result, filename,
       handlers: {
         back: showWizard,
-        cancel: () => ctx.navigate('order-history'),
+        cancel: () => ctx.navigate('purchase-orders'),
         downloadErrors: () => {
           if (!result.failed.length) { toast('No failed rows to export', 'info'); return; }
           exportErrorReport(result.failed, filename);

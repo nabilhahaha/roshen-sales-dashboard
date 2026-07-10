@@ -46,7 +46,8 @@ let shell = null;
 let currentCtx = null;
 
 function navigate(section, params) {
-  if (!isSection(section) && !PAGES[section]) section = 'dashboard';
+  // Purchase Orders is the master document and the workflow's starting point.
+  if (!isSection(section) && !PAGES[section]) section = 'purchase-orders';
   shell.setActive(EXTRA_ROUTES[section] || section);
   try { history.replaceState(null, '', '#' + section); } catch (e) {}
 
@@ -77,7 +78,7 @@ function boot() {
   const app = document.getElementById('app');
   shell = renderShell(app, { onNavigate: navigate, onSearch });
   const initial = (location.hash || '').replace('#', '');
-  navigate(isSection(initial) ? initial : 'dashboard');
+  navigate(isSection(initial) ? initial : 'purchase-orders');
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

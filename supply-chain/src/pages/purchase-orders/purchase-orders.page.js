@@ -16,6 +16,7 @@ import { listDeliveryNotes } from '../../services/delivery-note/delivery-note.se
 import { listInvoices } from '../../services/supplier-invoice/supplier-invoice.service.js';
 import { printOrder, exportOrderExcel } from '../../utils/documents.js';
 import { ORDER_STATUS } from '../../models/order-status.js';
+import { renderOrdersList } from './orders-list.view.js';
 
 let SKUS = [], SKU_BY_CODE = {};
 const ED = { id: null, readonly: false, header: null, lines: [], pi: null, doc: null };
@@ -32,9 +33,12 @@ const lineFromDb = (it) => {
 
 export async function render(root, ctx) {
   ROOT = root; CTX = ctx;
+  const p = ctx.params || {};
+  // The module opens as the active-orders LIST (the workflow's starting
+  // point); the editor is reached explicitly (view/edit/duplicate/new).
+  if (!p.orderId && !p.duplicateFrom && p.mode !== 'new') return renderOrdersList(root, ctx, 'active');
   if (!SKUS.length) { try { SKUS = await listSkus(); SKU_BY_CODE = indexByCode(SKUS); } catch (e) { /* combobox will be empty */ } }
   delegate(root, ACTIONS);
-  const p = ctx.params || {};
   if (p.orderId) await openOrder(p.orderId, p.mode || 'view');
   else if (p.duplicateFrom) await duplicateOrder(p.duplicateFrom);
   else startNew();
@@ -135,14 +139,14 @@ function paint() {
     </div></div>
     ${docCard}
     ${piStrip}
-    <div data-el="receiving"></div>
-    <div data-el="related"></div>
-    <div data-el="attachments"></div>
     <div class="sc-card">
       <div class="sc-card-h"><h3>📦 Items</h3><div class="sc-spacer"></div>${ro ? '' : '<div data-el="combo" style="min-width:340px"></div>'}</div>
       <div data-el="lines"></div>
       <div class="sc-summary" data-el="summary"></div>
     </div>
+    <div data-el="receiving"></div>
+    <div data-el="attachments"></div>
+    <div data-el="related"></div>
     <div class="sc-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center" data-el="actions"></div>`);
 
   if (!ro) createSkuCombo(qs('[data-el="combo"]', ROOT), SKUS, addItem);
@@ -421,7 +425,7 @@ function confirmApprove() {
 }
 
 const ACTIONS = {
-  back: () => CTX.navigate('order-history'),
+  back: () => CTX.navigate('purchase-orders'),
   importxl: () => CTX.navigate('import-order'),
   drill: (d) => { const r = DASH_ROWS[+d.id]; if (r) openLineDrill(r); },
   opendn: (d) => CTX.navigate('delivery-notes', { view: 'detail', dnId: +d.id }),
