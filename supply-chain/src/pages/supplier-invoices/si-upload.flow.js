@@ -12,6 +12,7 @@ import { toast } from '../../components/notifications/toast.js';
 import { tableWrap } from '../../components/table/table.js';
 import { parseInvoicePdf } from '../../services/supplier-invoice/supplier-invoice-parser.js';
 import { resolveInvoiceReferences, createSupplierInvoiceFromUpload } from '../../services/supplier-invoice/supplier-invoice.service.js';
+import { attachOriginalDocument } from '../../services/attachments/attachments.service.js';
 import { setPendingInvoiceFile } from '../delivery-notes/invoice-upload.flow.js';
 
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -155,13 +156,15 @@ export function startSiUpload(root, ctx) {
         invoiced_cases: l.quantity, case_price: l.unit_price,
         taxable_amount: l.taxable_amount, vat_percent: l.vat_percent, vat_amount: l.vat_amount, line_total: l.line_total,
       }));
-      await createSupplierInvoiceFromUpload({
+      const invRow = await createSupplierInvoiceFromUpload({
         orderId: order ? order.id : null, deliveryNoteId: null,
         header: p.header, totals: p.totals, lines, document: doc, docType: 'invoice',
         extracted: { header: p.header, totals: p.totals, lines: p.lines },
         validation: { pending: true, pi_found: !!order, dn_found: false, po_reference: p.header.po_reference, dn_reference: p.header.dn_reference },
         status: 'Pending Matching', createdBy: 'si-upload',
       });
+      if (!(await attachOriginalDocument('supplier_invoice', invRow.id, state.file, 'si-upload')))
+        toast('Invoice saved, but attaching the original PDF failed — add it from the Attachments panel.', 'info');
       toast(`Invoice ${p.header.invoice_number || ''} saved · Pending Matching${order ? ' · linked to ' + order.order_number : ''}`, 'ok');
       ctx.navigate('supplier-invoices');
     } catch (e) {

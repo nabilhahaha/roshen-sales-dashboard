@@ -10,6 +10,7 @@ import { priceIndex } from '../../services/fulfillment/fulfillment.service.js';
 import { parseInvoicePdf } from '../../services/supplier-invoice/supplier-invoice-parser.js';
 import { compareInvoiceToDeliveryNote } from '../../services/supplier-invoice/invoice-compare.js';
 import { createSupplierInvoiceFromUpload } from '../../services/supplier-invoice/supplier-invoice.service.js';
+import { attachOriginalDocument } from '../../services/attachments/attachments.service.js';
 
 // read a File as base64 (no data: prefix)
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -217,11 +218,13 @@ export async function startInvoiceUpload(root, ctx, dnId) {
         buyer_vat: p.header.z_buyer_vat || null, buyer_cr: p.header.z_buyer_cr || null,
         invoice_type_code: p.header.z_type_code || '388', payment_means: p.header.z_payment_means || null,
       };
-      await createSupplierInvoiceFromUpload({
+      const invRow = await createSupplierInvoiceFromUpload({
         orderId: dn.order_id, deliveryNoteId: dn.id, header: p.header, totals: p.totals,
         lines, document: doc, zatca, docType: 'invoice',
         extracted: { header: p.header, totals: p.totals, lines: p.lines }, validation, status, createdBy: 'invoice-upload',
       });
+      if (!(await attachOriginalDocument('supplier_invoice', invRow.id, state.file, 'invoice-upload')))
+        toast('Invoice saved, but attaching the original PDF failed — add it from the Attachments panel.', 'info');
       toast('Supplier invoice saved · ' + status, status === 'Matched' ? 'ok' : 'info');
       if (returnTo === 'supplier-invoices') ctx.navigate('supplier-invoices');
       else ctx.navigate('delivery-notes', { view: 'detail', dnId });

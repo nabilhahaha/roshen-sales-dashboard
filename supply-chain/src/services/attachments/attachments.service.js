@@ -40,6 +40,17 @@ export const canPreview = (att) => {
   return k === 'pdf' || (k === 'image' && extOf(att.filename) !== 'heic');
 };
 
+// Attach the ORIGINAL uploaded document to the record it created — called by
+// every import flow (PI / DN / Supplier Invoice) so the user never has to
+// upload the same file twice and the source document stays linked forever.
+// Best-effort by design: the document row is already saved; a failed
+// attachment must never roll it back (the caller may warn the user).
+export async function attachOriginalDocument(docType, docId, file, actor) {
+  if (!file) return false;
+  try { await uploadAttachment(docType, docId, file, { actor: actor || 'import' }); return true; }
+  catch (e) { try { console.error('Attaching the original document failed:', e); } catch (x) {} return false; }
+}
+
 // Metadata list — current revisions first-class, history available on demand.
 export async function listAttachments(docType, docId, { includeHistory = false } = {}) {
   let q = getClient().from('document_attachments')

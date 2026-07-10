@@ -30,7 +30,7 @@ export function render(root, ctx) {
     if (!f) return;
     if (typeof window.XLSX === 'undefined') { toast('Excel engine not loaded', 'err'); return; }
     const rd = new FileReader();
-    rd.onload = (e) => startImportFlow(root, ctx, e.target.result, f.name);
+    rd.onload = (e) => startImportFlow(root, ctx, e.target.result, f.name, f);
     rd.readAsArrayBuffer(f);
   }
 }

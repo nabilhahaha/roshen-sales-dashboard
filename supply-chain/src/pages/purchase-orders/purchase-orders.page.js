@@ -12,6 +12,8 @@ import * as Orders from '../../services/purchase-orders/orders.service.js';
 import { getReceivingDashboard } from '../../services/fulfillment/fulfillment.service.js';
 import { statusBadge } from '../../components/table/badges.js';
 import { attachmentsPanel } from '../../components/attachments/attachments-panel.js';
+import { listDeliveryNotes } from '../../services/delivery-note/delivery-note.service.js';
+import { listInvoices } from '../../services/supplier-invoice/supplier-invoice.service.js';
 import { printOrder, exportOrderExcel } from '../../utils/documents.js';
 import { ORDER_STATUS } from '../../models/order-status.js';
 
@@ -134,6 +136,7 @@ function paint() {
     ${docCard}
     ${piStrip}
     <div data-el="receiving"></div>
+    <div data-el="related"></div>
     <div data-el="attachments"></div>
     <div class="sc-card">
       <div class="sc-card-h"><h3>📦 Items</h3><div class="sc-spacer"></div>${ro ? '' : '<div data-el="combo" style="min-width:340px"></div>'}</div>
@@ -147,6 +150,7 @@ function paint() {
   renderActions();
   if (!isNew && h.status !== ORDER_STATUS.DRAFT) renderReceivingProgress();
   if (!isNew) attachmentsPanel(qs('[data-el="attachments"]', ROOT), 'purchase_order', ED.id, { actor: 'Development' });
+  if (!isNew) renderRelatedDocs();
 }
 
 // PI operational dashboard — the single screen of record for receiving.
@@ -226,6 +230,25 @@ function openLineDrill(r) {
       <td><span class="sc-badge ${x.qc_result === 'Released' ? 'confirmed' : 'closed'}">${esc(x.qc_result)}</span>${x.hold_status === 'on_hold' ? ' <span class="sc-badge closed">HOLD</span>' : ''}</td>
       <td class="mono" style="font-size:11px">${esc(x.grn_number || '')}</td></tr>`).join('')}</tbody></table>` : none)}`,
   [{ label: 'Close', cls: 'ghost' }]);
+}
+
+// Related Documents — every DN and Supplier Invoice linked to this PI, with
+// one-click navigation. Loaded after paint so the PI screen stays fast.
+async function renderRelatedDocs() {
+  const el = qs('[data-el="related"]', ROOT);
+  if (!el || !ED.id) return;
+  let dns = [], sis = [];
+  try { [dns, sis] = await Promise.all([listDeliveryNotes(ED.id), listInvoices(ED.id)]); } catch (e) { return; }
+  if (!dns.length && !sis.length) return;
+  const dnRows = dns.map((d) => `<tr class="sc-row-link" data-act="opendn" data-id="${d.id}">
+      <td>🚚 Delivery Note</td><td class="mono"><b>${esc(d.dn_number)}</b></td>
+      <td>${esc(d.dn_date || '')}</td><td>${statusBadge(d.status)}</td><td style="text-align:right;color:var(--text-muted)">→</td></tr>`).join('');
+  const siRows = sis.map((i) => `<tr class="sc-row-link" data-act="opensi" data-id="${i.id}">
+      <td>🧾 Supplier Invoice</td><td class="mono"><b>${esc(i.invoice_number)}</b></td>
+      <td>${esc(i.invoice_date || '')}</td><td>${statusBadge(i.status)}</td><td style="text-align:right;color:var(--text-muted)">→</td></tr>`).join('');
+  el.innerHTML = `<div class="sc-card"><div class="sc-card-h"><h3>🔗 Related Documents</h3><div class="sc-spacer"></div>
+      <span style="font-size:11.5px;color:var(--text-muted)">${dns.length} delivery note(s) · ${sis.length} invoice(s)</span></div>
+    <div class="sc-table-wrap"><table class="sc-table"><tbody>${dnRows}${siRows}</tbody></table></div></div>`;
 }
 
 function renderActions() {
@@ -401,6 +424,8 @@ const ACTIONS = {
   back: () => CTX.navigate('order-history'),
   importxl: () => CTX.navigate('import-order'),
   drill: (d) => { const r = DASH_ROWS[+d.id]; if (r) openLineDrill(r); },
+  opendn: (d) => CTX.navigate('delivery-notes', { view: 'detail', dnId: +d.id }),
+  opensi: (d) => CTX.navigate('supplier-invoices', { view: 'detail', invoiceId: +d.id }),
   unlock: () => { if (ED.header.status === ORDER_STATUS.DRAFT) { ED.readonly = false; paint(); } },
   save: () => save(false),
   approve: () => save(true),

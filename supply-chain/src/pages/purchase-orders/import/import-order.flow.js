@@ -13,11 +13,12 @@ import * as Orders from '../../../services/purchase-orders/orders.service.js';
 import { exportErrorReport } from '../../../utils/documents.js';
 import { parseWorkbookFromArrayBuffer } from '../../../services/pi/pi-parser.js';
 import { looksLikePiDocument, documentToOrderPlan, planLinesForDb } from '../../../services/import/pi-document-import.js';
+import { attachOriginalDocument } from '../../../services/attachments/attachments.service.js';
 import { renderWizard } from './mapping-wizard.view.js';
 import { renderPreview } from './import-preview.view.js';
 import { renderDocumentPreview } from './pi-document-preview.view.js';
 
-export async function startImportFlow(root, ctx, arrayBuffer, filename) {
+export async function startImportFlow(root, ctx, arrayBuffer, filename, originalFile) {
   let parsed;
   try { parsed = parseOrderWorkbook(arrayBuffer, window.XLSX); }
   catch (e) { toast('Could not read Excel: ' + (e.message || e), 'err'); return ctx.navigate('order-history'); }
@@ -50,6 +51,8 @@ export async function startImportFlow(root, ctx, arrayBuffer, filename) {
     try {
       const order = await Orders.createOrder(plan.header);
       await Orders.replaceItems(order.id, planLinesForDb(plan.lines));
+      if (!(await attachOriginalDocument('purchase_order', order.id, originalFile, 'pi-import')))
+        toast('PI created, but attaching the original file failed — add it from the Attachments panel.', 'info');
       toast(`PI ${order.order_number} created from ${filename || 'the document'}`, 'ok');
       ctx.navigate('purchase-orders', { orderId: order.id, mode: 'edit' });
     } catch (e) {
@@ -119,6 +122,8 @@ export async function startImportFlow(root, ctx, arrayBuffer, filename) {
         taxable_amount: l.taxable_amount ?? null, vat_percent: l.vat_percent ?? null,
         vat_amount: l.vat_amount ?? null, amount: l.amount ?? null,
       })));
+      if (!(await attachOriginalDocument('purchase_order', order.id, originalFile, 'pi-import')))
+        toast('Order created, but attaching the original file failed — add it from the Attachments panel.', 'info');
       toast(`Draft order ${order.order_number} created from Excel`, 'ok');
       ctx.navigate('purchase-orders', { orderId: order.id, mode: 'edit' });
     } catch (e) { toast('Create failed: ' + (e.message || e), 'err'); }

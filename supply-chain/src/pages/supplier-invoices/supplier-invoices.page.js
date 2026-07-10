@@ -173,6 +173,11 @@ async function renderInvoiceDetail(root, ctx, invoiceId) {
       <div class="sc-field"><label>Buyer VAT (ZATCA)</label><input class="sc-input" readonly value="${esc(z.buyer_vat || inv.buyer_vat || '—')}"></div>
     </div>
     ${inv.doc_notes ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-top:8px">Document notes: <i>${esc(inv.doc_notes)}</i></div>` : ''}</div>
+    ${inv.order || inv.delivery_note_id ? `<div class="sc-card"><div class="sc-card-h"><h3>🔗 Related Documents</h3></div>
+      <div class="sc-table-wrap"><table class="sc-table"><tbody>
+        ${inv.order ? `<tr class="sc-row-link" data-act="openpo"><td>📄 Purchase Invoice (PI)</td><td class="mono"><b>${esc(inv.order.order_number)}</b></td><td>${statusBadge(inv.order.status)}</td><td style="text-align:right;color:var(--text-muted)">→</td></tr>` : ''}
+        ${inv.delivery_note_id ? `<tr class="sc-row-link" data-act="opendn"><td>🚚 Delivery Note</td><td class="mono"><b>${esc((inv.delivery_note && inv.delivery_note.dn_number) || inv.dn_reference || ('#' + inv.delivery_note_id))}</b></td><td></td><td style="text-align:right;color:var(--text-muted)">→</td></tr>` : ''}
+      </tbody></table></div></div>` : ''}
     <div class="sc-card"><div class="sc-card-h"><h3>📦 Invoice Lines vs Delivery</h3><div class="sc-spacer"></div>
       <span style="font-size:11px;color:var(--text-muted)">billed vs delivered, at PI prices</span></div>
       <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Roshen / Code</th><th>Description</th><th class="num">Invoiced</th><th class="num">Expected</th><th class="num">Price/Case</th><th class="num">Taxable</th><th class="num">VAT</th><th>Match</th></tr></thead><tbody>${lineRows}</tbody></table></div></div>
@@ -183,6 +188,8 @@ async function renderInvoiceDetail(root, ctx, invoiceId) {
 
   wire(root, {
     back: () => ctx.navigate('supplier-invoices'),
+    openpo: () => ctx.navigate('purchase-orders', { orderId: inv.order_id, mode: 'view' }),
+    opendn: () => ctx.navigate('delivery-notes', { view: 'detail', dnId: inv.delivery_note_id }),
     print: () => { if (!printSupplierInvoice(inv)) toast('Allow pop-ups to print', 'err'); },
     rematch: async () => { try { const r = await matchInvoiceLineLevel(invoiceId, { actor: ACTOR }); toast('Invoice ' + r.status, r.matched ? 'ok' : 'info'); renderInvoiceDetail(root, ctx, invoiceId); } catch (e) { toast(e.message || String(e), 'err'); } },
     linknow: async () => {

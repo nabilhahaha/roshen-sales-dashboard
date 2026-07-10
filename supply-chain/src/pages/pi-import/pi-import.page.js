@@ -12,6 +12,7 @@ import { parseWorkbookFromArrayBuffer } from '../../services/pi/pi-parser.js';
 import { comparePiToOrder } from '../../services/pi/pi-compare.js';
 import { saveImportedPi } from '../../services/pi/pi.service.js';
 import { renderReport } from '../validation/validation-report.view.js';
+import { attachOriginalDocument } from '../../services/attachments/attachments.service.js';
 
 let SKU_BY_ROSHEN = {};
 
@@ -103,6 +104,8 @@ async function openImport(root, ctx, orderId) {
             save: async () => {
               try {
                 const pi = await saveImportedPi({ orderId, parsed, compare });
+                if (!(await attachOriginalDocument('purchase_order', orderId, file, 'pi-validation')))
+                  toast('PI saved, but attaching the original file failed — add it from the Attachments panel.', 'info');
                 toast('PI saved & linked · status ' + pi.status, 'ok');
                 ctx.navigate('validation', { piId: pi.id });
               } catch (err) {

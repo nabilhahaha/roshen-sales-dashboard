@@ -14,6 +14,7 @@ import { parseDeliveryNote } from '../../services/delivery-note/dn-parser.js';
 import { DN_MAPPING } from '../../services/delivery-note/dn-mapping.js';
 import * as ME from '../../services/import/mapping-engine.js';
 import { buildDeliveryNote } from '../../services/delivery-note/dn-validator.js';
+import { attachOriginalDocument } from '../../services/attachments/attachments.service.js';
 
 export async function startDnImport(root, ctx) {
   mount(root, loading('Loading orders…'));
@@ -72,7 +73,7 @@ export async function startDnImport(root, ctx) {
       try { state.parsed = parseDeliveryNote(e.target.result, window.XLSX); }
       catch (err) { return toast('Could not read Excel: ' + (err.message || err), 'err'); }
       if (!state.parsed.rows.length) return toast('No data rows found', 'err');
-      state.filename = f.name;
+      state.filename = f.name; state.file = f;
       const match = ME.findMatchingMapping(state.parsed.columns, DN_MAPPING);
       state.mapByIdx = match ? ME.mappingToIdx(match.map, state.parsed.columns) : ME.suggestMapping(state.parsed.columns, DN_MAPPING);
       if (match) toast(`Applied saved mapping “${match.name}”`, 'info');
@@ -196,6 +197,8 @@ export async function startDnImport(root, ctx) {
         header: { ...h, source_filename: state.filename, total_cartons: b.summary.totalCartons },
         lines: b.lines, createdBy: 'dn-import', allowOverDelivery,
       });
+      if (!(await attachOriginalDocument('delivery_note', dn.id, state.file, 'dn-import')))
+        toast('DN created, but attaching the original file failed — add it from the Attachments panel.', 'info');
       toast(`Delivery note ${dn.dn_number} created`, 'ok');
       ctx.navigate('delivery-notes', { view: 'detail', dnId: dn.id });
     } catch (e) {

@@ -180,6 +180,12 @@ export async function renderDnDetail(root, ctx, dnId) {
       ${dn.received_by ? `<span>Received by: <b>${esc(dn.received_by)}</b></span>` : ''}
     </div>` : ''}</div>
     <div class="erp-grid-2">${invoiceCard}${grCard}</div>
+    <div class="sc-card"><div class="sc-card-h"><h3>🔗 Related Documents</h3></div>
+      <div class="sc-table-wrap"><table class="sc-table"><tbody>
+        ${dn.order ? `<tr class="sc-row-link" data-act="openpi"><td>📄 Purchase Invoice (PI)</td><td class="mono"><b>${esc(dn.order.order_number)}</b></td><td>${statusBadge(dn.order.status)}</td><td style="text-align:right;color:var(--text-muted)">→</td></tr>` : ''}
+        ${(dn.invoices || []).map((i) => `<tr class="sc-row-link" data-act="openinv" data-id="${i.id}"><td>🧾 Supplier Invoice</td><td class="mono"><b>${esc(i.invoice_number)}</b></td><td>${statusBadge(i.status)}</td><td style="text-align:right;color:var(--text-muted)">→</td></tr>`).join('')}
+        ${gr ? `<tr class="sc-row-link" data-act="opengr" data-id="${gr.id}"><td>📦 Warehouse Receipt</td><td class="mono"><b>${esc(gr.grn_number || ('#' + gr.id))}</b></td><td>${statusBadge(gr.status)}</td><td style="text-align:right;color:var(--text-muted)">→</td></tr>` : ''}
+      </tbody></table></div></div>
     ${validationCard}
     <div class="sc-card"><div class="sc-card-h"><h3>📦 Lines &amp; Batches</h3><div class="sc-spacer"></div>
       <span style="font-size:11px;color:var(--text-muted)">delivered · remaining · disputed vs the PI · shelf life is live</span></div>
@@ -217,6 +223,7 @@ export async function renderDnDetail(root, ctx, dnId) {
       catch (e) { toast(e.message || String(e), 'err'); }
     },
     opengr: ({ id }) => ctx.navigate('goods-receiving', { view: 'detail', grId: id }),
+    openpi: () => ctx.navigate('purchase-orders', { orderId: dn.order_id, mode: 'view' }),
     openinv: ({ id }) => ctx.navigate('supplier-invoices', { view: 'detail', invoiceId: id }),
     dispatch: () => {
       const cur = dn.expected_delivery_at ? String(dn.expected_delivery_at).slice(0, 16) : '';
