@@ -18,6 +18,7 @@ import { listSkus, indexByRoshen, indexByCode } from '../../services/sku/sku.ser
 import { matchInvoiceToDeliveryNote, getInvoiceDocument } from '../../services/supplier-invoice/supplier-invoice.service.js';
 import { createGoodsReceiptFromDeliveryNote } from '../../services/goods-receiving/goods-receiving.service.js';
 import { printDeliveryNote } from '../../utils/documents.js';
+import { attachmentsPanel } from '../../components/attachments/attachments-panel.js';
 
 const ACTOR = 'Development';
 
@@ -139,7 +140,9 @@ export async function renderDnDetail(root, ctx, dnId) {
     <div class="sc-card"><div class="sc-card-h"><h3>📦 Lines &amp; Batches</h3><div class="sc-spacer"></div>
       <span style="font-size:11px;color:var(--text-muted)">delivered / remaining vs PO · disputed = over-delivery · shelf life live</span></div>
       <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Batch / Lot · Item</th><th>Expiry</th><th class="num">Delivered</th><th class="num">Remaining</th><th class="num">Disputed / Shelf</th><th>QC</th></tr></thead><tbody>${lineRows}</tbody></table></div></div>
+    <div data-el="dn-attachments"></div>
     ${auditCard}`);
+  attachmentsPanel(root.querySelector('[data-el="dn-attachments"]'), 'delivery_note', dn.id, { actor: ACTOR });
 
   wire(root, {
     back: () => ctx.navigate('delivery-notes'),

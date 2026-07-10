@@ -11,6 +11,7 @@ import { listSkus, indexByCode } from '../../services/sku/sku.service.js';
 import * as Orders from '../../services/purchase-orders/orders.service.js';
 import { getReceivingDashboard } from '../../services/fulfillment/fulfillment.service.js';
 import { statusBadge } from '../../components/table/badges.js';
+import { attachmentsPanel } from '../../components/attachments/attachments-panel.js';
 import { printOrder, exportOrderExcel } from '../../utils/documents.js';
 import { ORDER_STATUS } from '../../models/order-status.js';
 
@@ -90,6 +91,7 @@ function paint() {
     </div></div>
     ${piStrip}
     <div data-el="receiving"></div>
+    <div data-el="attachments"></div>
     <div class="sc-card">
       <div class="sc-card-h"><h3>📦 Order Details</h3><div class="sc-spacer"></div>${ro ? '' : '<div data-el="combo" style="min-width:340px"></div>'}</div>
       <div data-el="lines"></div>
@@ -101,6 +103,7 @@ function paint() {
   renderLines();
   renderActions();
   if (!isNew && h.status !== ORDER_STATUS.DRAFT) renderReceivingProgress();
+  if (!isNew) attachmentsPanel(qs('[data-el="attachments"]', ROOT), 'purchase_order', ED.id, { actor: 'Development' });
 }
 
 // PI operational dashboard — the single screen of record for receiving.

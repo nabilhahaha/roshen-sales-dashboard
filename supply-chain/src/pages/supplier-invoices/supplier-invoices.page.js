@@ -11,6 +11,7 @@ import { statusBadge } from '../../components/table/badges.js';
 import { modal } from '../../components/modal/modal.js';
 import { toast } from '../../components/notifications/toast.js';
 import { printSupplierInvoice } from '../../utils/documents.js';
+import { attachmentsPanel } from '../../components/attachments/attachments-panel.js';
 import {
   listInvoices, getInvoice, getInvoiceDocument, listInvoiceAudit,
   matchInvoiceLineLevel, editSupplierInvoice, cancelSupplierInvoice, createAdjustmentNote,
@@ -160,7 +161,9 @@ async function renderInvoiceDetail(root, ctx, invoiceId) {
       <span style="font-size:11px;color:var(--text-muted)">invoiced vs expected (delivered @ PO price, net of prior invoices)</span></div>
       <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Roshen / Code</th><th>Description</th><th class="num">Invoiced</th><th class="num">Expected</th><th class="num">Price/Case</th><th class="num">Taxable</th><th class="num">VAT</th><th>Match</th></tr></thead><tbody>${lineRows}</tbody></table></div></div>
     ${disputeCard}
+    <div data-el="si-attachments"></div>
     ${auditCard}`);
+  attachmentsPanel(root.querySelector('[data-el="si-attachments"]'), 'supplier_invoice', inv.id, { actor: ACTOR });
 
   wire(root, {
     back: () => ctx.navigate('supplier-invoices'),
