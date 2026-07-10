@@ -31,6 +31,19 @@ export const normRoshen = (r) => {
 
 // The single line-matching key across PO / DN / invoice / GR lines: Roshen ID
 // first, else Item Code — never description. Empty string means "no key".
+// Canonical document-reference comparison. Supplier documents often cite a
+// reference WITHOUT the year suffix (invoice says "DN-745" / "KS-406" for the
+// documents "DN-745/2026" / "KS-406/2026") — these are the same business
+// document. Matches when equal (case/whitespace-insensitive) or when one side
+// continues the other with "/…". Genuinely different numbers still differ
+// (DN-745 vs DN-761, DN-745 vs DN-7451).
+export const docRefMatches = (a, b) => {
+  if (a == null || b == null) return false;
+  const na = String(a).trim().toLowerCase(), nb = String(b).trim().toLowerCase();
+  if (!na || !nb) return false;
+  return na === nb || na.startsWith(nb + '/') || nb.startsWith(na + '/');
+};
+
 export const lineKey = (roshen, code) =>
   normRoshen(roshen) || String(code == null ? '' : code).trim();
 
