@@ -1,4 +1,5 @@
 // Tiny DOM helpers — keep pages framework-free but declarative.
+import { runAction } from '../components/feedback/feedback.js';
 
 export const el = (id) => document.getElementById(id);
 export const qs = (sel, root = document) => root.querySelector(sel);
@@ -10,12 +11,14 @@ export function mount(root, html) {
 }
 
 // Event delegation: elements carry data-act="name"; handlers[name](dataset, elem, event).
+// Async handlers automatically get the standard busy feedback (button disabled
+// + spinner + label) and double-click protection via runAction.
 export function delegate(root, handlers) {
   root.addEventListener('click', (e) => {
     const target = e.target.closest('[data-act]');
     if (!target || !root.contains(target)) return;
     const fn = handlers[target.dataset.act];
-    if (fn) { e.preventDefault(); fn(target.dataset, target, e); }
+    if (fn) { e.preventDefault(); runAction(fn, target.dataset, target, e); }
   });
 }
 
@@ -24,7 +27,7 @@ export function delegate(root, handlers) {
 export function wire(root, handlers) {
   root.querySelectorAll('[data-act]').forEach((node) => {
     const fn = handlers[node.dataset.act];
-    if (fn) node.addEventListener('click', (e) => { e.preventDefault(); fn(node.dataset, node, e); });
+    if (fn) node.addEventListener('click', (e) => { e.preventDefault(); runAction(fn, node.dataset, node, e); });
   });
 }
 

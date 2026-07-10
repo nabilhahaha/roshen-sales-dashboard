@@ -7,6 +7,7 @@
 // demand. Replace uploads a new revision and keeps the old one in history.
 import { esc } from '../../utils/format.js';
 import { toast } from '../notifications/toast.js';
+import { withPageLoading } from '../feedback/feedback.js';
 import { openDrawer } from '../document/document-shell.js';
 import {
   listAttachments, countAttachments, uploadAttachment, attachmentUrl,
@@ -238,10 +239,12 @@ export function attachmentsPanel(el, docType, docId, { actor = 'Development' } =
       const list = [...files];
       if (replaceTarget && list.length > 1) { toast('Pick a single file when replacing', 'err'); return; }
       let ok = 0;
-      for (const f of list) {
-        try { await uploadAttachment(docType, docId, f, { replaceId: replaceTarget || undefined, actor }); ok++; }
-        catch (e) { toast(e.message || String(e), 'err'); }
-      }
+      await withPageLoading(list.length > 1 ? `Uploading ${list.length} files…` : 'Uploading…', async () => {
+        for (const f of list) {
+          try { await uploadAttachment(docType, docId, f, { replaceId: replaceTarget || undefined, actor }); ok++; }
+          catch (e) { toast(e.message || String(e), 'err'); }
+        }
+      });
       replaceTarget = null;
       if (ok) { toast(ok + ' file(s) uploaded', 'ok'); paintBody(); countAttachments(docType, docId).then((n) => { const c = el.querySelector('[data-a="count"]'); if (c) c.textContent = n; }).catch(() => {}); }
     }

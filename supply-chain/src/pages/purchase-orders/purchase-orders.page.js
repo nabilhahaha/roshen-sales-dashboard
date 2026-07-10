@@ -277,7 +277,7 @@ function paintDocumentView() {
         return;
       }
       if (act === 'refresh') return openOrder(ED.id, 'view');
-      const fn = ACTIONS[act]; if (fn) fn({}, btn);
+      const fn = ACTIONS[act]; if (fn) return fn({}, btn);   // return the promise → busy feedback
     },
   });
 

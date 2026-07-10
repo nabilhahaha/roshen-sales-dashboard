@@ -9,6 +9,7 @@
 // service call stays exactly where it was. Tabs render lazily (one query set
 // per tab) so no screen turns into a long scrolling page.
 import { esc } from '../../utils/format.js';
+import { runAction, skeletonTable, spinner } from '../feedback/feedback.js';
 
 // shell(root, {
 //   icon, title, badges (html), meta: [{label, value(html-safe already)}],
@@ -77,14 +78,16 @@ export function renderDocumentShell(root, cfg) {
     if (memKey) TAB_MEMORY.set(memKey, id);
     root.querySelectorAll('.doc-tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === id));
     const t = tabs.find((x) => x.id === id);
-    bodyEl.innerHTML = '<div class="sc-empty"><div class="ic">⏳</div><p>Loading…</p></div>';
+    bodyEl.innerHTML = `<div class="sk-page" role="status" aria-live="polite">
+      <div class="sk-page-head">${spinner()} <span>Loading…</span></div>
+      <div class="sc-card">${skeletonTable(5, 6)}</div></div>`;
     try { await t.render(bodyEl); }
     catch (e) { bodyEl.innerHTML = `<div class="sc-empty"><div class="ic">⚠</div><p>${esc(e.message || String(e))}</p></div>`; }
   }
   root.querySelectorAll('.doc-tab').forEach((b) => b.addEventListener('click', () => show(b.dataset.tab)));
   root.querySelectorAll('[data-qact]').forEach((b) => b.addEventListener('click', () => {
     if (moreMenu) moreMenu.style.display = 'none';
-    if (cfg.onAction) cfg.onAction(b.dataset.qact, b);
+    if (cfg.onAction) runAction(() => cfg.onAction(b.dataset.qact, b), b.dataset, b);
   }));
   if (active) show(active);
   return { show, body: bodyEl, get active() { return active; } };

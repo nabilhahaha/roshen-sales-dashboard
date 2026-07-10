@@ -1,4 +1,5 @@
 // Reusable confirmation modal.
+import { pageLoading, pageLoadingDone, busyLabel } from '../feedback/feedback.js';
 let overlay = null;
 function ensure() {
   if (overlay) return overlay;
@@ -24,7 +25,17 @@ export function modal(title, bodyHtml, buttons = []) {
     const btn = document.createElement('button');
     btn.className = 'sc-btn ' + (b.cls || '');
     btn.textContent = b.label;
-    btn.onclick = () => { close(); if (b.onClick) b.onClick(); };
+    btn.onclick = () => {
+      close();
+      if (!b.onClick) return;
+      // a confirmed action that returns a Promise blocks the page with the
+      // standard loading overlay until it settles — no wondering, no re-click
+      const out = b.onClick();
+      if (out && typeof out.then === 'function') {
+        pageLoading(b.busy || busyLabel(btn));
+        out.then(pageLoadingDone, pageLoadingDone);
+      }
+    };
     acts.appendChild(btn);
   });
   o.classList.add('open');

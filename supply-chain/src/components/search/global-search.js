@@ -3,6 +3,7 @@
 // matching lives in services/search/global-search.service.js.
 import { esc } from '../../utils/format.js';
 import { globalSearch } from '../../services/search/global-search.service.js';
+import { spinner } from '../feedback/feedback.js';
 
 export function attachGlobalSearch(inputEl, navigate) {
   if (!inputEl) return;
@@ -22,7 +23,7 @@ export function attachGlobalSearch(inputEl, navigate) {
   async function run(q) {
     const my = ++seq;
     if (!q || q.trim().length < 2) { close(); return; }
-    drop.innerHTML = '<div style="padding:10px;font-size:12px;color:var(--text-muted)">Searching…</div>'; open();
+    drop.innerHTML = `<div style="padding:10px;font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:8px">${spinner(12)} Searching…</div>`; open();
     let res;
     try { res = await globalSearch(q); } catch (e) { close(); return; }
     if (my !== seq) return;                                     // a newer keystroke won

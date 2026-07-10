@@ -326,3 +326,29 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:-apple-syst
 @media(max-width:1080px){.doc-act-p3{display:none}}
 @media(max-width:920px){.doc-act-p2{display:none}}
 @media(max-width:700px){.doc-act-p1{display:none}}
+
+/* ---- V2.3 global loading & process feedback ------------------------------ */
+@keyframes sc-rotate{to{transform:rotate(360deg)}}
+.sc-spin{display:inline-block;vertical-align:-2px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;
+  opacity:.9;animation:sc-rotate .7s linear infinite;flex:none}
+/* busy element: locked, no double clicks; buttons additionally show spinner+label */
+.is-busy{pointer-events:none;opacity:.75;cursor:progress}
+button.is-busy,.sc-btn.is-busy{display:inline-flex;align-items:center;gap:7px;justify-content:center}
+/* full-page blocking overlay */
+.sc-page-loading{position:fixed;inset:0;z-index:400;display:none;align-items:center;justify-content:center;
+  background:rgba(6,10,20,.45);backdrop-filter:blur(1.5px)}
+:root[data-theme="light"] .sc-page-loading{background:rgba(244,246,250,.55)}
+.sc-page-loading.open{display:flex}
+.sc-page-loading-box{display:flex;align-items:center;gap:12px;background:var(--bg-card);border:1px solid var(--border);
+  border-radius:14px;padding:18px 26px;font-size:13.5px;font-weight:700;color:var(--text-primary);box-shadow:0 18px 50px rgba(0,0,0,.35)}
+.sc-page-loading-box .sc-spin{color:var(--gold,#E8B54A);border-width:3px}
+/* skeleton shimmer placeholders */
+@keyframes sc-shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
+.sk{border-radius:6px;background:linear-gradient(90deg,var(--bg-card-hover) 25%,var(--bg-elevated) 50%,var(--bg-card-hover) 75%);
+  background-size:200% 100%;animation:sc-shimmer 1.3s ease-in-out infinite}
+.sk-line{height:12px;margin:7px 0}
+.sk-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:14px}
+.sk-card .sk-line:first-child{height:9px;width:40%}
+.sk-page-head{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:700;color:var(--text-secondary);margin:2px 0 14px}
+.sk-page-head .sc-spin{color:var(--gold,#E8B54A)}
+.sk-page .sc-table td,.sk-page .sc-table th{border-bottom-color:var(--border)}

@@ -222,7 +222,7 @@ export async function renderDnDetail(root, ctx, dnId) {
         return renderDocumentChain(body, (s2, p2) => { closeDrawer(); ctx.navigate(s2, p2); }, { orderId: dn.order_id, current: { type: 'delivery_note', id: dn.id } });
       }
       if (act === 'refresh') return renderDnDetail(root, ctx, dnId);
-      const fn = HANDLERS[act]; if (fn) fn({});
+      const fn = HANDLERS[act]; if (fn) return fn({});   // return the promise → busy feedback
     },
   });
 
