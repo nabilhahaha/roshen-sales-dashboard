@@ -17,6 +17,7 @@ import { listInvoices } from '../../services/supplier-invoice/supplier-invoice.s
 import { printOrder, exportOrderExcel } from '../../utils/documents.js';
 import { ORDER_STATUS } from '../../models/order-status.js';
 import { renderOrdersList } from './orders-list.view.js';
+import { listRevisions } from '../../services/purchase-orders/revision.service.js';
 
 let SKUS = [], SKU_BY_CODE = {};
 const ED = { id: null, readonly: false, header: null, lines: [], pi: null, doc: null };
@@ -147,6 +148,7 @@ function paint() {
     <div data-el="receiving"></div>
     <div data-el="attachments"></div>
     <div data-el="related"></div>
+    <div data-el="audit"></div>
     <div class="sc-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center" data-el="actions"></div>`);
 
   if (!ro) createSkuCombo(qs('[data-el="combo"]', ROOT), SKUS, addItem);
@@ -155,6 +157,7 @@ function paint() {
   if (!isNew && h.status !== ORDER_STATUS.DRAFT) renderReceivingProgress();
   if (!isNew) attachmentsPanel(qs('[data-el="attachments"]', ROOT), 'purchase_order', ED.id, { actor: 'Development' });
   if (!isNew) renderRelatedDocs();
+  if (!isNew) renderAuditTrail();
 }
 
 // PI operational dashboard — the single screen of record for receiving.
@@ -253,6 +256,27 @@ async function renderRelatedDocs() {
   el.innerHTML = `<div class="sc-card"><div class="sc-card-h"><h3>🔗 Related Documents</h3><div class="sc-spacer"></div>
       <span style="font-size:11.5px;color:var(--text-muted)">${dns.length} delivery note(s) · ${sis.length} invoice(s)</span></div>
     <div class="sc-table-wrap"><table class="sc-table"><tbody>${dnRows}${siRows}</tbody></table></div></div>`;
+}
+
+// Audit trail — the PI's lifecycle from the data it already carries:
+// created / approved timestamps + every applied revision. Read-only.
+async function renderAuditTrail() {
+  const el = qs('[data-el="audit"]', ROOT);
+  if (!el || !ED.id || !ED.doc) return;
+  const d = ED.doc;
+  let revs = [];
+  try { revs = await listRevisions(ED.id); } catch (e) { revs = []; }
+  const fmt = (t) => esc(String(t || '').slice(0, 16).replace('T', ' '));
+  const entries = [];
+  if (d.created_at) entries.push({ icon: '➕', label: 'Created' + (d.source_filename ? ' from ' + d.source_filename : ''), by: d.created_by, at: d.created_at });
+  (revs || []).forEach((r) => entries.push({ icon: '✏️', label: `Revision ${r.revision_no != null ? '#' + r.revision_no : ''} applied`, by: r.created_by, at: r.created_at }));
+  if (d.approved_at) entries.push({ icon: '✅', label: 'Approved & locked', by: null, at: d.approved_at });
+  entries.push({ icon: '🔖', label: 'Current status: ' + (d.status || ''), by: null, at: d.updated_at });
+  el.innerHTML = `<div class="sc-card"><div class="sc-card-h"><h3>🕓 Audit Trail</h3><div class="sc-spacer"></div>
+      <span class="sc-badge none">${entries.length}</span></div>
+    <div class="erp-rev-timeline">${entries.map((a) => `<div class="erp-rev">
+      <div class="erp-rev-h"><b>${a.icon} ${esc(a.label)}</b>
+      <span style="margin-left:auto;font-size:11px;color:var(--text-muted)">${esc(a.by || '—')} · ${fmt(a.at)}</span></div></div>`).join('')}</div></div>`;
 }
 
 function renderActions() {
