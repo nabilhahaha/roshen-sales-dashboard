@@ -81,10 +81,15 @@ async function renderDetail(root, ctx, grId) {
   const ROWS = gr.batches.map((b) => {
     const sl = shelfLife(skuFor(b), { expiry_date: b.expiry_date, manufacturing_date: b.manufacturing_date }, today());
     const belowMin = !!sl.belowMinimum;
+    // Received seeds from the stored value only when it is a real quantity;
+    // a stale 0 on a not-yet-released batch falls back to DELIVERED — the
+    // "Full Delivery — Received = Delivered" promise. (A zero here once
+    // caused a receipt to release with 0 received and post no inventory.)
+    const stored = Number(b.received_cases);
     return {
       b, sl, belowMin,
       decision: done ? null : (belowMin ? null : 'accept'),   // healthy → auto-accepted, no action needed
-      received: Number(b.received_cases != null ? b.received_cases : b.delivered_cases) || 0,
+      received: stored > 0 ? stored : Number(b.delivered_cases || 0),
     };
   });
   let FULL_DELIVERY = true;   // Received = Delivered for every line (default)
@@ -321,7 +326,12 @@ async function renderDetail(root, ctx, grId) {
       if (!approval.reason) return toast('Enter the exception reason', 'err');
       if (!approval.by) return toast('Enter who approved the exception', 'err');
     }
-    if (s.received === 0 && !confirm('No quantity will be received into the warehouse. Continue?')) return;
+    // accepted batches MUST carry a received quantity — a receipt can never
+    // post 0 cases for accepted goods (reject the batches instead)
+    if (s.received === 0 && s.accepted > 0) {
+      return toast('Nothing would be received — enter the received quantities (or reject the batches). The receipt was NOT posted.', 'err');
+    }
+    if (s.received === 0 && !confirm('Every batch is rejected — nothing will be received into the warehouse. Continue?')) return;
     saving = true;
     qsa('button', root).forEach((b) => (b.disabled = true));
     try {

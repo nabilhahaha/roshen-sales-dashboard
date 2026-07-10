@@ -253,6 +253,11 @@ export async function renderDnDetail(root, ctx, dnId) {
     },
     rematch: async () => { try { const r = await matchInvoiceToDeliveryNote(inv.id); toast('Invoice ' + r.status, r.matched ? 'ok' : 'info'); renderDnDetail(root, ctx, dnId); } catch (e) { toast(e.message || String(e), 'err'); } },
     creategr: async () => {
+      // in-flight guard: a double click must never run two receipts in
+      // parallel (a parallel release once double-posted inventory)
+      if (HANDLERS._receiving) return;
+      HANDLERS._receiving = true;
+      qsa('[data-act="creategr"], [data-qact="creategr"]', root).forEach((b) => { b.disabled = true; b.textContent = '⏳ Receiving…'; });
       try {
         const g = await createGoodsReceiptFromDeliveryNote(dn.id, { warehouse: dn.order && dn.order.warehouse, createdBy: 'dn-detail' });
         // business rule: a clean receipt (every batch meets its shelf-life
@@ -265,6 +270,10 @@ export async function renderDnDetail(root, ctx, dnId) {
         ctx.navigate('goods-receiving', { view: 'detail', grId: g.id });
       }
       catch (e) { toast(e.message || String(e), 'err'); }
+      finally {
+        HANDLERS._receiving = false;
+        qsa('[data-act="creategr"], [data-qact="creategr"]', root).forEach((b) => { b.disabled = false; b.textContent = '✅ Confirm Arrival — receive into warehouse'; });
+      }
     },
     opengr: ({ id }) => ctx.navigate('goods-receiving', { view: 'detail', grId: id || (gr && gr.id) }),
     openpi: () => ctx.navigate('purchase-orders', { orderId: dn.order_id, mode: 'view' }),

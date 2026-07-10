@@ -183,6 +183,29 @@ export async function createSupplierInvoiceFromUpload(inv) {
     });
   }
 
+  // Edit-by-re-upload: if an ACTIVE invoice with this number already exists on
+  // this purchase order AND it belongs to the SAME delivery note, the user is
+  // correcting that document — supersede it (kept for audit as 'Replaced'),
+  // never a duplicate error. An active invoice with the same number on a
+  // DIFFERENT delivery note is a genuine duplicate and stays blocked.
+  let replacedInvoice = null;
+  const invNumber = inv.header.invoice_number || null;
+  if (inv.orderId && invNumber && (inv.docType || 'invoice') === 'invoice') {
+    const { data: same } = await c.from('supplier_invoices')
+      .select('id,delivery_note_id,status,doc_type').eq('order_id', inv.orderId).eq('invoice_number', invNumber)
+      .not('status', 'in', '("Replaced","Cancelled")').limit(1);
+    const prior = (same || [])[0];
+    if (prior && prior.doc_type === 'invoice' && inv.deliveryNoteId && prior.delivery_note_id === inv.deliveryNoteId) {
+      if (await releasedGrForDn(prior.delivery_note_id)) {
+        throw new Error('Goods were already received against this delivery note — the invoice can no longer be replaced. Reverse the goods receipt first.');
+      }
+      const { error: eRep } = await c.from('supplier_invoices')
+        .update({ status: 'Replaced', updated_at: new Date().toISOString() }).eq('id', prior.id);
+      if (eRep) throw eRep;
+      replacedInvoice = prior;
+    }
+  }
+
   const { data: invRow, error: e1 } = await c.from('supplier_invoices').insert({
     order_id: inv.orderId || null,   // null = not linked to a PI yet (Pending Matching)
     delivery_note_id: inv.deliveryNoteId || null,
@@ -214,8 +237,16 @@ export async function createSupplierInvoiceFromUpload(inv) {
     created_by: inv.createdBy || null,
   }).select().single();
   if (e1) {
-    if (e1.code === '23505') throw new Error('An invoice with this number already exists for this purchase order. Check the invoice number before saving.');
+    if (replacedInvoice) {
+      // restore the superseded invoice — the replacement was not saved
+      await c.from('supplier_invoices').update({ status: replacedInvoice.status, updated_at: new Date().toISOString() }).eq('id', replacedInvoice.id);
+    }
+    if (e1.code === '23505') throw new Error('An invoice with this number already exists for this purchase order (on another delivery). Check the invoice number before saving.');
     throw e1;
+  }
+  if (replacedInvoice) {
+    await c.from('supplier_invoices').update({ superseded_by: invRow.id, updated_at: new Date().toISOString() }).eq('id', replacedInvoice.id);
+    try { await logInvoiceAudit(replacedInvoice.id, inv.orderId, 'replaced', { detail: { superseded_by: invRow.id, reason: 'corrected document re-uploaded' }, actor: inv.createdBy }); } catch (e) { /* best-effort */ }
   }
 
   const cleanup = async (msg, err) => { await c.from('supplier_invoices').delete().eq('id', invRow.id); throw new Error(msg + (err && (err.message || err) ? ': ' + (err.message || err) : '')); };
