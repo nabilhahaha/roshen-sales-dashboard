@@ -1,29 +1,31 @@
-// Inventory service — read-only views over the movement-based inventory.
-// Balances live in `inventory`; every change is recorded in
-// `inventory_movements` (the source of truth). FEFO-ready: on-hand stock is
-// ordered by expiry date.
-import { getClient } from '../supabase/client.js';
+// Inventory service — READ-ONLY screens over the Inventory Transaction
+// Engine. Balances are always calculated from transactions (the
+// inventory_balances view); the ledger is the transaction list itself.
+// All writes go through inventory-transaction.service.js — nothing here
+// (or anywhere else) updates a quantity directly.
+import { listBalances, getLedger } from './inventory-transaction.service.js';
 
 export async function listInventory({ inStockOnly = true } = {}) {
-  let q = getClient().from('inventory').select('*').order('expiry_date', { ascending: true, nullsFirst: false });
-  if (inStockOnly) q = q.gt('cases_on_hand', 0);
-  const { data, error } = await q;
-  if (error) throw error;
-  return data || [];
+  const rows = await listBalances({ inStockOnly });
+  // legacy shape used by the Inventory screen (description / cases_on_hand)
+  return rows.map((r) => ({
+    id: (r.sku_id || 0) * 1e6 + (r.batch_id || 0),
+    sku_id: r.sku_id, batch_id: r.batch_id,
+    roshen_id: r.roshen_id, item_code: r.item_code, description: r.item_description,
+    batch_no: r.batch_no, manufacturing_date: r.manufacturing_date, expiry_date: r.expiry_date,
+    warehouse: r.warehouse, cases_on_hand: r.cases_on_hand,
+    qc_status: r.qc_status, hold_status: r.hold_status, updated_at: r.last_movement_at,
+  }));
 }
 
 export async function listMovements(orderId) {
-  let q = getClient().from('inventory_movements').select('*').order('created_at', { ascending: false });
-  if (orderId) q = q.eq('order_id', orderId);
-  const { data, error } = await q;
-  if (error) throw error;
-  return data || [];
+  return getLedger(orderId ? { orderId } : {});
 }
 
 export async function inventorySummary() {
   const rows = await listInventory({ inStockOnly: true });
-  const skuSet = new Set(), batchCount = rows.length;
+  const skuSet = new Set();
   let cases = 0;
-  rows.forEach((r) => { skuSet.add(r.roshen_id || r.item_code); cases += Number(r.cases_on_hand || 0); });
-  return { skus: skuSet.size, batches: batchCount, cases: +cases.toFixed(2) };
+  rows.forEach((r) => { skuSet.add(r.sku_id || r.roshen_id || r.item_code); cases += Number(r.cases_on_hand || 0); });
+  return { skus: skuSet.size, batches: rows.length, cases: +cases.toFixed(2) };
 }

@@ -7,6 +7,7 @@
 // and %), never stored. Every state change lands in batch_audit_log; every
 // quantity change is an inventory_movement carrying batch_id.
 import { getClient } from '../supabase/client.js';
+import { postTransaction, postTransfer } from '../inventory/inventory-transaction.service.js';
 
 // ---- audit ----------------------------------------------------------
 export async function logBatchAudit(batchId, action, { detail, note, actor } = {}) {
@@ -96,25 +97,38 @@ export async function unholdBatch(batchId, { actor } = {}) {
   await logBatchAudit(batchId, 'unheld', { actor });
 }
 
-// ---- stock adjustment (movement-based, per batch, audited) ------------
+// ---- stock adjustment / write-off / transfer (via the Transaction Engine)
+// Batches never touch quantities directly — every change is a posted
+// inventory transaction; the engine enforces the stock guard.
 export async function adjustBatchStock(batchId, casesDelta, { reason, actor } = {}) {
   const delta = Number(casesDelta);
   if (!delta) throw new Error('Adjustment quantity must be non-zero.');
   const b = await getBatch(batchId);
-  if (delta < 0 && Number(b.current_cases) + delta < 0) {
-    throw new Error(`Cannot adjust by ${delta}: only ${b.current_cases} case(s) on hand for this batch.`);
-  }
-  const { error } = await getClient().from('inventory_movements').insert({
-    order_id: b.order_id || null, gr_id: b.gr_id || null, gr_batch_id: b.gr_batch_id || null,
-    dn_batch_id: b.dn_batch_id || null, batch_id: batchId,
-    item_code: b.item_code, roshen_id: b.roshen_id, description: b.item_description,
-    batch_no: b.batch_no, manufacturing_date: b.manufacturing_date, expiry_date: b.expiry_date,
-    warehouse: b.warehouse, movement_type: 'ADJUST', cases_delta: delta,
-    reference: 'ADJUST batch #' + batchId + (reason ? ' — ' + reason : ''), created_by: actor || null,
+  await postTransaction({
+    type: 'ADJUST', delta, batchId, warehouse: b.warehouse,
+    referenceModule: 'inventory', reference: 'ADJUST batch #' + batchId + (reason ? ' — ' + reason : ''), actor,
+    context: { itemCode: b.item_code, roshenId: b.roshen_id, description: b.item_description },
   });
-  if (error) throw error;
   await logBatchAudit(batchId, 'adjusted', { detail: { cases_delta: delta }, note: reason, actor });
   return { adjusted: true, delta };
+}
+
+export async function writeOffBatch(batchId, cases, { reason, actor } = {}) {
+  const b = await getBatch(batchId);
+  await postTransaction({
+    type: 'WRITE_OFF', qty: Number(cases), batchId, warehouse: b.warehouse,
+    referenceModule: 'inventory', reference: 'WRITE-OFF batch #' + batchId + (reason ? ' — ' + reason : ''), actor,
+    context: { itemCode: b.item_code, roshenId: b.roshen_id, description: b.item_description },
+  });
+  await logBatchAudit(batchId, 'adjusted', { detail: { write_off: Number(cases) }, note: reason, actor });
+  return { writtenOff: true, cases: Number(cases) };
+}
+
+export async function transferBatch(batchId, cases, { toWarehouse, binLocation, actor } = {}) {
+  const b = await getBatch(batchId);
+  const r = await postTransfer({ batchId, qty: Number(cases), fromWarehouse: b.warehouse, toWarehouse, binLocation, actor });
+  await logBatchAudit(batchId, 'adjusted', { detail: { transfer: Number(cases), from: b.warehouse, to: toWarehouse, reference: r.reference }, actor });
+  return r;
 }
 
 // ---- reservations ------------------------------------------------------
