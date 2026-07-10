@@ -5,6 +5,7 @@ import { mount, wire, delegate, qsa } from '../../utils/dom.js';
 import { esc, qty, today } from '../../utils/format.js';
 import { loading, emptyState } from '../../components/table/table.js';
 import { toast } from '../../components/notifications/toast.js';
+import { modal } from '../../components/modal/modal.js';
 import { orderBadge } from '../../components/table/table.js';
 import { shelfChip } from '../../components/table/badges.js';
 import { listSkus, indexByRoshen, indexByCode } from '../../services/sku/sku.service.js';
@@ -179,7 +180,7 @@ export async function startDnImport(root, ctx) {
   }
 
   let creating = false;
-  async function doCreate() {
+  async function doCreate(allowOverDelivery = false) {
     if (creating) return;                    // guard against double submit
     creating = true;
     const btn = root.querySelector('[data-act="create"]');
@@ -189,14 +190,25 @@ export async function startDnImport(root, ctx) {
       const dn = await createDeliveryNote({
         orderId: state.order.id,
         header: { ...h, source_filename: state.filename, total_cartons: b.summary.totalCartons },
-        lines: b.lines, createdBy: 'dn-import',
+        lines: b.lines, createdBy: 'dn-import', allowOverDelivery,
       });
       toast(`Delivery note ${dn.dn_number} created`, 'ok');
       ctx.navigate('delivery-notes', { view: 'detail', dnId: dn.id });
     } catch (e) {
-      toast('Create failed: ' + (e.message || e), 'err');
       creating = false;                      // allow retry on failure
       if (btn) { btn.disabled = false; btn.textContent = '✅ Create Delivery Note'; }
+      if (e && e.code === 'OVER_DELIVERY') {
+        // blocked by the PO-quantity rule — the user may explicitly record the
+        // excess as a disputed over-delivery (it still can never be received)
+        modal('⚠ Delivery exceeds the purchase order', `
+          <p style="font-size:12.5px;color:var(--text-secondary)">${esc(e.message)}</p>
+          <p style="font-size:12.5px;color:var(--text-secondary)">You can record the document anyway: the excess is tracked as a <b>disputed over-delivery</b> and receiving stays capped at the PO quantity — the extra cases can never enter inventory.</p>`, [
+          { label: 'Record as disputed over-delivery', cls: 'primary', onClick: () => doCreate(true) },
+          { label: 'Back — fix quantities', cls: 'ghost' },
+        ]);
+        return;
+      }
+      toast('Create failed: ' + (e.message || e), 'err');
     }
   }
 

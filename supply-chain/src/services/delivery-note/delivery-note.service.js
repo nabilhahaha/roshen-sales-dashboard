@@ -94,6 +94,33 @@ export async function createDeliveryNote(dn) {
   const already = await findDeliveryNoteRow(dn.orderId, dnNumber);
   if (already) return already;
 
+  // PO quantity guard: the cumulative delivered quantity per line (existing
+  // non-cancelled DNs + this one) must not exceed the PO (latest approved
+  // revision) quantity. Blocked by default; an explicit allowOverDelivery
+  // records the excess as a disputed over-delivery instead (it still can never
+  // be RECEIVED — goods receipt is hard-capped at the PO quantity).
+  if (!dn.allowOverDelivery) {
+    const ful = await getFulfillment(dn.orderId);
+    const fulByKey = {};
+    ful.forEach((r) => { fulByKey[keyOf(r.roshen_id, r.item_code)] = r; });
+    const violations = [];
+    for (const line of dn.lines || []) {
+      const lk = line.line_key || keyOf(line.roshen_id, line.item_code);
+      const f = fulByKey[lk];
+      if (!f) continue; // not a PO line — flagged as "additional" separately
+      const add = (line.batches || []).reduce((a, b) => a + Number(b.cases || 0), 0);
+      const ordered = Number(f.ordered_cases || 0), delivered = Number(f.delivered_cases || 0);
+      if (delivered + add > ordered + 0.0001) {
+        violations.push(`${f.description || lk}: PO allows ${ordered}, ${delivered} already delivered, this delivery adds ${add} (${delivered + add - ordered} over)`);
+      }
+    }
+    if (violations.length) {
+      const err = new Error('Delivery exceeds the purchase order quantity — ' + violations.join('; ') + '. Reduce the quantities, or record it explicitly as a disputed over-delivery.');
+      err.code = 'OVER_DELIVERY';
+      throw err;
+    }
+  }
+
   const poIdx = await poItemIndex(dn.orderId);
 
   const insertHeader = () => c.from('delivery_notes').insert({

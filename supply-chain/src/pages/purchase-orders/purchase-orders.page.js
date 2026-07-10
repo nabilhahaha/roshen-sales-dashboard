@@ -9,6 +9,7 @@ import { toast } from '../../components/notifications/toast.js';
 import { one } from '../../services/supabase/client.js';
 import { listSkus, indexByCode } from '../../services/sku/sku.service.js';
 import * as Orders from '../../services/purchase-orders/orders.service.js';
+import { getFulfillmentWithSummary } from '../../services/fulfillment/fulfillment.service.js';
 import { printOrder, exportOrderExcel } from '../../utils/documents.js';
 import { ORDER_STATUS } from '../../models/order-status.js';
 
@@ -87,6 +88,7 @@ function paint() {
       ${field('Notes', `<input data-el="notes" class="sc-input" ${dis} placeholder="Optional" value="${esc(h.notes || '')}">`)}
     </div></div>
     ${piStrip}
+    <div data-el="receiving"></div>
     <div class="sc-card">
       <div class="sc-card-h"><h3>📦 Order Details</h3><div class="sc-spacer"></div>${ro ? '' : '<div data-el="combo" style="min-width:340px"></div>'}</div>
       <div data-el="lines"></div>
@@ -97,6 +99,42 @@ function paint() {
   if (!ro) createSkuCombo(qs('[data-el="combo"]', ROOT), SKUS, addItem);
   renderLines();
   renderActions();
+  if (!isNew && h.status !== ORDER_STATUS.DRAFT) renderReceivingProgress();
+}
+
+// Live receiving progress — the PO is the source of truth; ordered / received /
+// remaining derive from the fulfillment ledger and update on every reload.
+async function renderReceivingProgress() {
+  const el = qs('[data-el="receiving"]', ROOT);
+  if (!el || !ED.id) return;
+  let ful;
+  try { ful = await getFulfillmentWithSummary(ED.id); } catch (e) { return; }
+  if (!ful.rows.length) return;
+  const s = ful.summary;
+  const pct = s.ordered > 0 ? Math.min(100, Math.round((s.received / s.ordered) * 100)) : 0;
+  const bar = (o, r) => {
+    const p = o > 0 ? Math.min(100, Math.round((r / o) * 100)) : 0;
+    return `<div style="display:flex;align-items:center;gap:8px"><div style="flex:1;height:6px;border-radius:4px;background:var(--border-light);overflow:hidden">
+      <div style="width:${p}%;height:100%;background:${p >= 100 ? '#2FB344' : '#1971C2'}"></div></div><span style="font-size:11px;color:var(--text-muted);min-width:34px">${p}%</span></div>`;
+  };
+  const rows = ful.rows.map((r) => {
+    const ordered = Number(r.ordered_cases || 0), received = Number(r.received_cases || 0);
+    const remaining = Number(r.remaining_cases != null ? r.remaining_cases : Math.max(0, ordered - received));
+    return `<tr>
+      <td class="mono"><b>${esc(r.roshen_id || r.item_code)}</b></td>
+      <td>${esc((r.description || '').slice(0, 44))}</td>
+      <td class="num">${qty(ordered)}</td>
+      <td class="num">${qty(r.delivered_cases)}</td>
+      <td class="num"><b>${qty(received)}</b></td>
+      <td class="num" style="color:${remaining > 0 ? 'var(--text-primary)' : '#2FB344'}">${qty(remaining)}</td>
+      <td style="min-width:120px">${bar(ordered, received)}</td>
+      <td>${Number(r.disputed_cases) > 0 ? `<span class="sc-badge closed">${qty(r.disputed_cases)} disputed</span>` : ''}</td></tr>`;
+  }).join('');
+  el.innerHTML = `<div class="sc-card">
+    <div class="sc-card-h"><h3>📦 Receiving Progress</h3><div class="sc-spacer"></div>
+      <span style="font-size:12px;color:var(--text-secondary)">Ordered <b>${qty(s.ordered)}</b> · Received <b>${qty(s.received)}</b> · Remaining <b>${qty(s.remaining)}</b> · ${pct}% received</span></div>
+    ${tableWrap(`<table class="sc-table"><thead><tr><th>Roshen</th><th>Item</th><th class="num">Ordered</th><th class="num">Delivered</th><th class="num">Received</th><th class="num">Remaining</th><th>Progress</th><th></th></tr></thead><tbody>${rows}</tbody></table>`)}
+  </div>`;
 }
 
 function renderActions() {

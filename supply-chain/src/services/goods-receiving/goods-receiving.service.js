@@ -11,6 +11,8 @@ import { lineKey as keyOf, normRoshen } from '../../utils/format.js';
 import { deliveryNoteHasMatchedInvoice } from '../supplier-invoice/supplier-invoice.service.js';
 import { createBatchesForGoodsReceipt, setBatchQcStatus, logBatchAudit } from '../batch/batch.service.js';
 import { postTransaction } from '../inventory/inventory-transaction.service.js';
+import { shelfLife } from '../../models/shelf-life.js';
+import { today } from '../../utils/format.js';
 
 export async function listGoodsReceipts(orderId) {
   let q = getClient().from('goods_receipts')
@@ -180,6 +182,27 @@ export async function releaseGoodsReceipt(grId, opts = {}) {
   const warehouse = opts.warehouse || gr.warehouse || (gr.order && gr.order.warehouse) || null;
 
   const released = gr.batches.filter((b) => b.qc_result === 'Released' && Number(b.received_cases || 0) > 0);
+
+  // Shelf-life gate: every released batch must meet the SKU's minimum
+  // remaining shelf life (master data, default 70%) — a below-minimum batch
+  // can only be released with a recorded "Accept Exception" (audited).
+  if (released.length) {
+    const skuIds = [...new Set(released.map((b) => b.sku_id).filter(Boolean))];
+    const { data: skus } = skuIds.length ? await c.from('sku_master')
+      .select('id,shelf_life_value,shelf_life_unit,min_remaining_shelf_life_pct').in('id', skuIds) : { data: [] };
+    const skuById = {}; (skus || []).forEach((s) => { skuById[s.id] = s; });
+    const dnBatchIds = released.map((b) => b.dn_batch_id).filter(Boolean);
+    const { data: exceptions } = dnBatchIds.length ? await c.from('shelf_life_exceptions')
+      .select('dn_batch_id,decision').in('dn_batch_id', dnBatchIds).eq('decision', 'Accept Exception') : { data: [] };
+    const excepted = new Set((exceptions || []).map((e) => e.dn_batch_id));
+    const blockedBatches = released.filter((b) => {
+      const sl = shelfLife(skuById[b.sku_id] || null, { expiry_date: b.expiry_date, manufacturing_date: b.manufacturing_date }, today());
+      return sl.belowMinimum && !excepted.has(b.dn_batch_id);
+    });
+    if (blockedBatches.length) {
+      throw new Error(`Shelf-life rule: ${blockedBatches.length} batch(es) are below the minimum remaining shelf life (${blockedBatches.map((b) => (b.batch_no || b.description || '#' + b.id)).join(', ')}). Record an approved "Accept Exception" for each, or reject them.`);
+    }
+  }
   for (const b of released) {
     const key = keyOf(b.roshen_id, b.item_code);
     const cost = costByKey[key] != null ? costByKey[key] : null;
@@ -216,7 +239,28 @@ export async function releaseGoodsReceipt(grId, opts = {}) {
   await c.from('delivery_notes').update({
     status: rej === total ? 'Cancelled' : 'Received', received_at: new Date().toISOString(), updated_at: new Date().toISOString(),
   }).eq('id', gr.delivery_note_id);
+  await syncOrderReceivingStatus(gr.order_id);
   return { status, released: rel, rejected: rej, total };
+}
+
+// Keep the PO's operational status in sync with the fulfillment ledger AFTER
+// the goods-receipt header is final (the DB trigger fires per movement, before
+// the GR is marked Released, so it can lag one release behind). Never touches
+// the explicit financial states (Invoice Matched / Financially Closed).
+async function syncOrderReceivingStatus(orderId) {
+  const c = getClient();
+  const { data: o } = await c.from('supply_orders').select('status').eq('id', orderId).single();
+  if (!o || ['Invoice Matched', 'Financially Closed'].includes(o.status)) return;
+  const { data: rows } = await c.from('po_line_fulfillment').select('ordered_cases,delivered_cases,received_cases').eq('order_id', orderId);
+  if (!rows || !rows.length) return;
+  let ordered = 0, delivered = 0, received = 0;
+  rows.forEach((r) => { ordered += Number(r.ordered_cases || 0); delivered += Number(r.delivered_cases || 0); received += Number(r.received_cases || 0); });
+  let status = null;
+  if (received > 0) status = received >= ordered - 0.0001 ? 'Fully Received' : 'Partially Received';
+  else if (delivered > 0) status = delivered >= ordered - 0.0001 ? 'Fully Delivered' : 'Partially Delivered';
+  if (status && status !== o.status) {
+    await c.from('supply_orders').update({ status, updated_at: new Date().toISOString() }).eq('id', orderId);
+  }
 }
 
 // Reverse a released goods receipt: post compensating (negative) inventory
@@ -251,5 +295,6 @@ export async function reverseReleasedGoodsReceipt(grId, opts = {}) {
   await c.from('goods_receipts').update({
     status: 'Cancelled', notes: opts.reason || 'Reversed', updated_at: new Date().toISOString(),
   }).eq('id', grId);
+  await syncOrderReceivingStatus(gr.order_id);
   return { reversed: true, batches: released.length, casesReversed: released.reduce((a, b) => a + Number(b.received_cases || 0), 0) };
 }
