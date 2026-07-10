@@ -16,10 +16,19 @@
 //   - Manual "Close Purchase Order"      → Closed (remaining qty Cancelled)
 
 // ---- Delivery Notes -------------------------------------------------------
-// A DN counts as SHIPPED once its shipment is confirmed (dispatched or already
-// at the warehouse door), and DELIVERED once the warehouse receipt posted.
+// STATUS vocabulary: a DN's badge reads SHIPPED once its dispatch is confirmed
+// in the app, and DELIVERED once the warehouse receipt posted.
 export const DN_SHIPPED_STATUSES = ['In Transit', 'Receiving Review'];
 export const DN_DELIVERED_STATUSES = ['Received'];
+
+// QUANTITY rule — the single source of truth for every "Shipped" figure
+// (Open Orders, PO aggregates, exports, dashboard): the delivery note (the
+// supplier's Goods Issue Note) IS the shipping document — its existence
+// evidences that the goods left the supplier, whether or not anyone clicked
+// "Dispatch" in the app (that click only tracks the logistics stage / ETA).
+// Only cancelled or reversed documents ship nothing.
+export const DN_NO_QUANTITY_STATUSES = ['Cancelled', 'Reversed'];
+export const dnShipsQuantity = (dnStatus) => !DN_NO_QUANTITY_STATUSES.includes(dnStatus);
 
 export const dnBusinessStatus = (dnStatus) => {
   if (DN_DELIVERED_STATUSES.includes(dnStatus)) return 'Delivered';
