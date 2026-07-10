@@ -49,7 +49,7 @@ export async function startInvoiceUpload(root, ctx, dnId) {
     mount(root, `
       <div class="sc-card-h"><h3>📄 Upload Supplier Invoice · ${esc(dn.dn_number)}</h3><div class="sc-spacer"></div>
         <button class="sc-btn sm ghost" data-act="back">← Delivery Note</button></div>
-      <div class="sc-card"><p style="font-size:12.5px;color:var(--text-secondary);margin-top:0">The supplier invoice is received as a PDF. Upload it — the ERP stores the original for audit, extracts the data, and validates it against this delivery note. (ZATCA XML support can be added later.)</p>
+      <div class="sc-card"><p style="font-size:12.5px;color:var(--text-secondary);margin-top:0">Upload the supplier invoice PDF. The original file is saved with the invoice, and the amounts are checked against this delivery note.</p>
         <div class="erp-drop" data-el="drop">
           <div style="font-size:40px;opacity:.6">🧾</div>
           <div style="margin-top:10px;font-weight:700;color:var(--text-primary)">Drop the supplier invoice PDF here or click to browse</div>
@@ -88,7 +88,7 @@ export async function startInvoiceUpload(root, ctx, dnId) {
   function reviewStep() {
     const p = state.parsed;
     const hf = (label, key, val, type) => `<div class="sc-field"><label>${label}</label><input class="sc-input" data-h="${key}" ${type ? `type="${type}"` : ''} value="${esc(val == null ? '' : val)}"></div>`;
-    const bindOpts = (sel) => ['<option value="">— unbound —</option>']
+    const bindOpts = (sel) => ['<option value="">— not matched —</option>']
       .concat(dnLines.map((d) => `<option value="${esc(d.key)}" ${sel === d.key ? 'selected' : ''}>${esc(d.roshen_id || d.item_code)} · ${esc((d.description || '').slice(0, 40))} (${qty(d.cartons)} ctn)</option>`)).join('');
 
     const lineRows = p.lines.map((l, i) => `<tr>
@@ -104,8 +104,8 @@ export async function startInvoiceUpload(root, ctx, dnId) {
       <div class="sc-card-h"><h3>🧾 Verify Supplier Invoice · ${esc(dn.dn_number)}</h3><div class="sc-spacer"></div>
         <span class="mono" style="font-size:11px;color:var(--text-muted)">${esc(state.file.name)}</span>
         <button class="sc-btn sm ghost" style="margin-left:10px" data-act="reupload">← Re-upload</button></div>
-      <div class="sc-card"><div class="sc-card-h"><h3>Extracted header</h3><div class="sc-spacer"></div>
-        <span style="font-size:11px;color:var(--text-muted)">extracted from the PDF — correct anything before validating</span></div>
+      <div class="sc-card"><div class="sc-card-h"><h3>Invoice details</h3><div class="sc-spacer"></div>
+        <span style="font-size:11px;color:var(--text-muted)">read from the PDF — correct anything before checking</span></div>
         <div class="sc-form-grid">
           ${hf('Invoice Number', 'invoice_number', p.header.invoice_number)}
           ${hf('Invoice Date', 'invoice_date', p.header.invoice_date, 'date')}
@@ -129,8 +129,8 @@ export async function startInvoiceUpload(root, ctx, dnId) {
           ${hf('Payment Means', 'z_payment_means', (p.header.zatca || {}).payment_means)}
         </div></div>
       <div class="sc-card"><div class="sc-card-h"><h3>Line items</h3><div class="sc-spacer"></div>
-        <span style="font-size:11px;color:var(--text-muted)">bind each invoice line to the delivery-note SKU it corresponds to</span></div>
-        <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>#</th><th>Description (invoice)</th><th class="num">Unit</th><th class="num">Qty</th><th class="num">Taxable</th><th class="num">VAT</th><th>Bind to DN SKU</th></tr></thead><tbody>${lineRows}</tbody></table></div></div>
+        <span style="font-size:11px;color:var(--text-muted)">match each invoice line to the delivered item</span></div>
+        <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>#</th><th>Description (invoice)</th><th class="num">Unit</th><th class="num">Qty</th><th class="num">Taxable</th><th class="num">VAT</th><th>Match to Delivered Item</th></tr></thead><tbody>${lineRows}</tbody></table></div></div>
       <div class="sc-card" data-el="validation"></div>
       <div class="sc-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center" data-el="actions"></div>`);
 
@@ -161,18 +161,18 @@ export async function startInvoiceUpload(root, ctx, dnId) {
       <td>${typeof c.actual === 'number' ? money(c.actual) : esc(c.actual)}</td>
       <td>${c.ok == null ? '<span class="sc-badge none">n/a</span>' : c.ok ? '<span class="sc-badge confirmed">✓</span>' : '<span class="sc-badge closed">✗</span>'}</td></tr>`;
     root.querySelector('[data-el="validation"]').innerHTML = `
-      <div class="sc-card-h"><h3>📊 Validation vs Delivery Note</h3><div class="sc-spacer"></div>
+      <div class="sc-card-h"><h3>📊 Check vs Delivery Note</h3><div class="sc-spacer"></div>
         ${cmp.ok ? '<span class="sc-badge confirmed">✓ Matches</span>' : '<span class="sc-badge closed">⚠ Differences</span>'}</div>
       <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Check</th><th>Expected (DN/PO)</th><th>Invoice</th><th>Result</th></tr></thead><tbody>${['dn_ref', 'po_ref', 'value', 'vat', 'lines'].map((k) => row(cmp.checks.find((c) => c.key === k))).join('')}</tbody></table></div>
       <div style="font-size:12px;color:var(--text-secondary);margin-top:8px">DN expected net: <b>${money(cmp.expectedNet)} SAR</b> · invoice net: <b>${money(cmp.invoiceNet)} SAR</b> · difference: <b style="color:${Math.abs(cmp.valueDiff) < 1 ? 'inherit' : '#F76707'}">${money(cmp.valueDiff)} SAR</b></div>`;
 
     const actions = root.querySelector('[data-el="actions"]');
     if (cmp.ok) {
-      actions.innerHTML = '<button class="sc-btn green" data-act="save-matched">✅ Save &amp; Match Invoice</button><span style="font-size:12px;color:var(--text-secondary)">Storing the invoice as Matched unlocks Goods Receiving for this delivery note.</span>';
+      actions.innerHTML = '<button class="sc-btn green" data-act="save-matched">✅ Confirm Match</button><span style="font-size:12px;color:var(--text-secondary)">A matched invoice lets this delivery be received into the warehouse.</span>';
     } else {
       actions.innerHTML = '<button class="sc-btn primary" data-act="save-disputed">💾 Save as Disputed</button>' +
         '<button class="sc-btn ghost" data-act="save-override">Accept differences &amp; Match</button>' +
-        '<span style="font-size:12px;color:var(--text-secondary)">Review the differences. Disputed keeps the record but does not unlock receiving; Accept records an override (audited).</span>';
+        '<span style="font-size:12px;color:var(--text-secondary)">Review the differences. A disputed invoice cannot be received; accepting the differences is recorded.</span>';
     }
     wire(actions, {
       'save-matched': () => save('Matched', false),

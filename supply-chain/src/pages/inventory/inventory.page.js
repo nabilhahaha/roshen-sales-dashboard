@@ -53,7 +53,7 @@ export async function render(root, ctx) {
       <span style="font-size:11px;color:var(--text-muted)">earliest expiry first · shelf life computed live</span></div>
       ${tableWrap(`<table class="sc-table"><thead><tr><th>Item</th><th>Batch / Lot</th><th>Expiry</th><th>Remaining shelf life</th><th>Warehouse</th><th class="num">Cases</th></tr></thead><tbody>${invRows}</tbody></table>`)}`)}
     ${card(`<div class="sc-card-h"><h3>📜 Transaction ledger</h3><div class="sc-spacer"></div>
-      <span style="font-size:11px;color:var(--text-muted)">the Inventory Transaction Engine is the only thing that changes stock · latest 60</span></div>
+      <span style="font-size:11px;color:var(--text-muted)">every stock movement, newest first · latest 60</span></div>
       ${tableWrap(`<table class="sc-table"><thead><tr><th>Txn</th><th>Type</th><th>Item</th><th>Batch</th><th>Warehouse</th><th class="num">In</th><th class="num">Out</th><th class="num">Balance</th><th>Reference</th></tr></thead><tbody>${moveRows}</tbody></table>`)}`)}
   `);
   delegate(root, {});

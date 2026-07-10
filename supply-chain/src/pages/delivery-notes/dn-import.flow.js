@@ -30,11 +30,11 @@ export async function startDnImport(root, ctx) {
     const rows = orders.map((o) => `<tr class="sc-row-link" data-act="pick" data-id="${o.id}">
       <td class="mono"><b>${esc(o.order_number)}</b></td><td>${esc(o.order_date || '')}</td>
       <td>${esc(o.supplier || '')}</td><td>${esc(o.warehouse || '')}</td><td>${orderBadge(o.status)}</td>
-    </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:22px">No orders are ready to receive. A PO must reach “PI Approved” or a delivery stage first.</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:22px">No PIs are ready for deliveries yet — approve the PI first.</td></tr>';
     mount(root, `
-      <div class="sc-card-h"><h3>📥 Import Delivery Note</h3><div class="sc-spacer"></div>
+      <div class="sc-card-h"><h3>➕ Add Delivery Note</h3><div class="sc-spacer"></div>
         <button class="sc-btn sm ghost" data-act="cancel">← Delivery Notes</button></div>
-      <div class="sc-card"><div class="sc-card-h" style="margin-bottom:8px"><b>1. Choose the Purchase Order this delivery belongs to</b></div>
+      <div class="sc-card"><div class="sc-card-h" style="margin-bottom:8px"><b>1. Choose the PI this delivery belongs to</b></div>
         <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Order #</th><th>Date</th><th>Supplier</th><th>Warehouse</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
       </div>`);
     delegate(root, {
@@ -46,13 +46,13 @@ export async function startDnImport(root, ctx) {
   // ---- step 2: upload ----
   function uploadStep() {
     mount(root, `
-      <div class="sc-card-h"><h3>📥 Import Delivery Note · ${esc(state.order.order_number)}</h3><div class="sc-spacer"></div>
-        <button class="sc-btn sm ghost" data-act="back">← Change PO</button></div>
+      <div class="sc-card-h"><h3>➕ Add Delivery Note · ${esc(state.order.order_number)}</h3><div class="sc-spacer"></div>
+        <button class="sc-btn sm ghost" data-act="back">← Change PI</button></div>
       <div class="sc-card"><div class="sc-card-h" style="margin-bottom:8px"><b>2. Upload the supplier Delivery Note Excel</b></div>
         <div class="erp-drop" data-el="drop">
           <div style="font-size:40px;opacity:.6">📄</div>
           <div style="margin-top:10px;font-weight:700;color:var(--text-primary)">Drop the DN .xlsx here or click to browse</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:4px">Columns are mapped dynamically; the same SKU may appear in multiple batches.</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:4px">The file’s columns are matched automatically — you can adjust them in the next step.</div>
           <input type="file" accept=".xlsx,.xls" data-el="file" style="display:none">
         </div></div>`);
     const drop = root.querySelector('[data-el="drop"]'); const file = root.querySelector('[data-el="file"]');
@@ -93,13 +93,13 @@ export async function startDnImport(root, ctx) {
     const savedOpts = saved.length
       ? `<select class="sc-select" data-el="saved" style="max-width:220px"><option value="">Apply saved mapping…</option>${saved.map((m) => `<option value="${esc(m.name)}">${esc(m.name)}</option>`).join('')}</select>` : '';
     mount(root, `
-      <div class="sc-card-h"><h3>🧭 Map Columns · ${esc(state.order.order_number)}</h3><div class="sc-spacer"></div>
+      <div class="sc-card-h"><h3>🧭 Match Columns · ${esc(state.order.order_number)}</h3><div class="sc-spacer"></div>
         <span class="mono" style="color:var(--text-muted);font-size:11px">${esc(state.filename)}</span>
         <button class="sc-btn sm ghost" style="margin-left:10px" data-act="back">← Re-upload</button></div>
       <div class="sc-card"><div class="sc-card-h" style="margin-bottom:10px">
         <span style="font-size:12.5px;color:var(--text-secondary)">Required: <b>Roshen ID</b>, <b>Expiry Date</b>, <b>Cartons</b>. Matching is by Roshen ID / Item Code — never description.</span>
         <div class="sc-spacer"></div>${savedOpts}</div>
-        <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th style="width:40%">Excel Column</th><th></th><th style="width:45%">DN Field</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th style="width:40%">Excel Column</th><th></th><th style="width:45%">Delivery Note Field</th></tr></thead><tbody>${rows}</tbody></table></div>
       </div>
       <div class="sc-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
         <button class="sc-btn primary" data-act="review">Continue to Review →</button>
@@ -174,7 +174,7 @@ export async function startDnImport(root, ctx) {
         <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Batch / Lot</th><th>Expiry</th><th>Mfg</th><th class="num">Cases</th><th>Remaining shelf life</th><th></th></tr></thead><tbody>${lineRows}</tbody></table></div></div>
       <div class="sc-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
         <button class="sc-btn primary" data-act="create">✅ Create Delivery Note</button>
-        <span style="font-size:12px;color:var(--text-secondary)">This records a partial delivery against ${esc(state.order.order_number)} and updates the open balance. Extra / over-balance lines are still recorded for review.</span>
+        <span style="font-size:12px;color:var(--text-secondary)">This records the delivery against ${esc(state.order.order_number)} and updates the remaining quantities.</span>
       </div>`);
     wire(root, { back: mapStep, create: doCreate });
   }

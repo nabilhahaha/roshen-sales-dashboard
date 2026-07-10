@@ -35,10 +35,10 @@ export async function render(root, ctx) {
       <div class="sc-spacer"></div>
       <span style="font-size:12.5px;color:var(--text-secondary)">Still expected from supplier: <b>${qty(tot.remaining)}</b> cases · Received <b>${qty(tot.received)}</b> of <b>${qty(tot.ordered)}</b></span></div>
     <div class="sc-card">
-      <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">Purchase orders not yet completely received. Open one to see its remaining items — completed items are hidden by default. Orders close automatically when every ordered quantity is received.</p>
+      <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">PIs that are not fully received yet. Open one to see what is still expected — completed items are hidden by default.</p>
       ${tableWrap(`<table class="sc-table"><thead><tr>
-        <th>PI Number</th><th>Supplier</th><th>Order Date</th><th>Expected Arrival</th><th>Progress</th>
-        <th class="num">Ordered</th><th class="num">Received</th><th class="num">Remaining</th><th>Status</th></tr></thead>
+        <th>PI Number</th><th>Supplier</th><th>Order Date</th><th>Expected Delivery</th><th>Delivery Progress</th>
+        <th class="num">Ordered Qty</th><th class="num">Received Qty</th><th class="num">Remaining Qty</th><th>Status</th></tr></thead>
         <tbody>${rows}</tbody></table>`)}
     </div>`);
 

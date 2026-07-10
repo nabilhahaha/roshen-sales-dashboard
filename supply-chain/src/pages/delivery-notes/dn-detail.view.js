@@ -55,7 +55,7 @@ export async function renderDnDetail(root, ctx, dnId) {
       <td class="num"><b>${qty(total)}</b></td>
       <td class="num">${f ? qty(remaining) : '—'}</td>
       <td class="num">${disputed > 0 ? `<span class="sc-badge closed">${qty(disputed)}</span>` : '—'}</td>
-      <td>${it.match_status === 'additional' ? '<span class="sc-badge closed">Extra (not on PO)</span>' : '<span class="sc-badge confirmed">On PO</span>'}</td></tr>`;
+      <td>${it.match_status === 'additional' ? '<span class="sc-badge closed">Not on PI</span>' : '<span class="sc-badge confirmed">On PI</span>'}</td></tr>`;
     const batches = (it.batches || []).map((b) => {
       const sl = shelfLife(sku, { expiry_date: b.expiry_date, manufacturing_date: b.manufacturing_date }, today());
       return `<tr>
@@ -71,7 +71,7 @@ export async function renderDnDetail(root, ctx, dnId) {
   let invoiceCard;
   if (!inv) {
     invoiceCard = `<div class="sc-card"><div class="sc-card-h"><h3>🧾 Supplier Invoice</h3></div>
-      <p style="font-size:12.5px;color:var(--text-secondary)">The supplier invoice is received as a PDF. Upload it — the ERP stores the original for audit, extracts the data, and validates it against this delivery note. A matched invoice unlocks Goods Receiving.</p>
+      <p style="font-size:12.5px;color:var(--text-secondary)">Upload the supplier invoice for this delivery. It must match the delivery (items, quantities and prices) before the goods can be received.</p>
       <button class="sc-btn primary" data-act="upload" ${editable ? '' : 'disabled'}>📄 Upload Supplier Invoice (PDF)</button></div>`;
   } else {
     invoiceCard = `<div class="sc-card"><div class="sc-card-h"><h3>🧾 Supplier Invoice</h3><div class="sc-spacer"></div>${statusBadge(inv.status)}</div>
@@ -97,12 +97,12 @@ export async function renderDnDetail(root, ctx, dnId) {
       <p style="font-size:12.5px;color:var(--text-secondary)">${!invMatched
         ? 'Blocked: the supplier invoice must match this delivery note first (same items, quantities and prices).'
         : inTransit
-          ? `Shipment in transit${eta ? ' — expected <b>' + esc(eta) + '</b>' : ''}. Confirm the arrival to receive the goods into the warehouse.`
-          : 'Invoice matched — the shipment is ready. Dispatch it with an expected delivery date &amp; time, then confirm the arrival to receive into the warehouse (capped at the PI quantity).'}</p>
+          ? `On its way${eta ? ' — expected <b>' + esc(eta) + '</b>' : ''}. When it arrives, confirm the warehouse receipt.`
+          : 'Invoice matched — the shipment is ready. Set the expected delivery date, then confirm the warehouse receipt when it arrives.'}</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
-        ${invMatched && !inTransit ? '<button class="sc-btn primary" data-act="dispatch">🛫 Dispatch — set ETA</button>' : ''}
+        ${invMatched && !inTransit ? '<button class="sc-btn primary" data-act="dispatch">🚚 Dispatch — set Expected Delivery</button>' : ''}
         ${invMatched && inTransit ? '<button class="sc-btn sm ghost" data-act="dispatch">🕓 Update ETA</button>' : ''}
-        <button class="sc-btn ${invMatched ? 'green' : 'ghost'}" data-act="creategr" ${invMatched ? '' : 'disabled'}>🏬 Confirm arrival → Goods Receipt</button>
+        <button class="sc-btn ${invMatched ? 'green' : 'ghost'}" data-act="creategr" ${invMatched ? '' : 'disabled'}>✅ Confirm Warehouse Receipt</button>
       </div></div>`;
   }
 
@@ -127,10 +127,10 @@ export async function renderDnDetail(root, ctx, dnId) {
       ${statusBadge(dn.status)}<span style="margin-left:8px">${actionBtns}</span>
       <button class="sc-btn sm ghost" style="margin-left:10px" data-act="back">← Delivery Notes</button></div>
     ${anyDisputed ? `<div class="sc-card" style="border-left:3px solid #F76707"><b>⚖ Over-delivery under dispute</b>
-      <p style="font-size:12px;color:var(--text-secondary);margin:6px 0 0">This delivery exceeds the approved PO quantity on ${ful.summary && ful.summary.lines ? '' : ''}one or more lines by <b>${qty(ful.summary.disputed)}</b> case(s). The excess is tracked as disputed and cannot be received — only quantities up to the approved PO are receivable.</p></div>` : ''}
+      <p style="font-size:12px;color:var(--text-secondary);margin:6px 0 0">This delivery exceeds the PI quantity by <b>${qty(ful.summary.disputed)}</b> case(s). The excess is marked as disputed and can never be received.</p></div>` : ''}
     <div class="sc-card"><div class="sc-form-grid">
-      <div class="sc-field"><label>PO</label><input class="sc-input" readonly value="${esc((dn.order && dn.order.order_number) || '')}"></div>
-      <div class="sc-field"><label>PO Reference (printed)</label><input class="sc-input" readonly value="${esc(dn.po_reference || '—')}"></div>
+      <div class="sc-field"><label>PI</label><input class="sc-input" readonly value="${esc((dn.order && dn.order.order_number) || '')}"></div>
+      <div class="sc-field"><label>PI Reference (on document)</label><input class="sc-input" readonly value="${esc(dn.po_reference || '—')}"></div>
       <div class="sc-field"><label>DN Date</label><input class="sc-input" readonly value="${esc(dn.dn_date || '—')}"></div>
       <div class="sc-field"><label>Supplier</label><input class="sc-input" readonly value="${esc(dn.supplier || '—')}"></div>
       <div class="sc-field"><label>Total Cartons</label><input class="sc-input" readonly value="${esc(String(dn.total_cartons ?? '—'))}"></div>
@@ -138,7 +138,7 @@ export async function renderDnDetail(root, ctx, dnId) {
     </div></div>
     <div class="erp-grid-2">${invoiceCard}${grCard}</div>
     <div class="sc-card"><div class="sc-card-h"><h3>📦 Lines &amp; Batches</h3><div class="sc-spacer"></div>
-      <span style="font-size:11px;color:var(--text-muted)">delivered / remaining vs PO · disputed = over-delivery · shelf life live</span></div>
+      <span style="font-size:11px;color:var(--text-muted)">delivered · remaining · disputed vs the PI · shelf life is live</span></div>
       <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Batch / Lot · Item</th><th>Expiry</th><th class="num">Delivered</th><th class="num">Remaining</th><th class="num">Disputed / Shelf</th><th>QC</th></tr></thead><tbody>${lineRows}</tbody></table></div></div>
     <div data-el="dn-attachments"></div>
     ${auditCard}`);
@@ -148,10 +148,10 @@ export async function renderDnDetail(root, ctx, dnId) {
     back: () => ctx.navigate('delivery-notes'),
     print: () => { if (!printDeliveryNote(dn)) toast('Allow pop-ups to print', 'err'); },
     edit: () => openEditModal(dn, () => renderDnDetail(root, ctx, dnId)),
-    cancel: () => openReasonModal('Cancel delivery note?', 'The delivery note will be excluded from the PO fulfillment ledger. This is audited.', 'Cancel DN', async (reason) => {
+    cancel: () => openReasonModal('Cancel delivery note?', 'The delivery will be removed from the PI totals. This action is recorded.', 'Cancel DN', async (reason) => {
       try { await cancelDeliveryNote(dnId, { reason, actor: ACTOR }); toast('Delivery note cancelled', 'ok'); renderDnDetail(root, ctx, dnId); } catch (e) { toast(e.message || String(e), 'err'); }
     }),
-    reverse: () => openReasonModal('Reverse delivery note?', 'Compensating inventory movements will be posted (on-hand returns to before this receipt), the goods receipt is cancelled, and the DN is marked Reversed. This is audited.', 'Reverse DN', async (reason) => {
+    reverse: () => openReasonModal('Reverse delivery note?', 'The received quantities will be taken back out of the warehouse and the PI totals updated. This action is recorded.', 'Reverse DN', async (reason) => {
       try { await reverseDeliveryNote(dnId, { reason, actor: ACTOR }); toast('Delivery note reversed · inventory adjusted', 'ok'); renderDnDetail(root, ctx, dnId); } catch (e) { toast(e.message || String(e), 'err'); }
     }),
     upload: () => ctx.navigate('delivery-notes', { view: 'invoice', dnId }),

@@ -33,7 +33,7 @@ export async function render(root, ctx) {
       <input class="sc-input" style="max-width:220px;margin-left:10px" data-el="search" placeholder="🔎 Batch / SKU / warehouse…">
       <button class="sc-btn primary" style="margin-left:8px" data-act="fefo">📤 FEFO Allocation</button></div>
     <div class="sc-card">
-      <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">Every received batch is a Batch Master record created automatically by Goods Receipt. Stock is tracked by SKU + batch (movement-derived); shelf life is calculated live; QC and holds apply per batch; FEFO always allocates from the oldest valid batch.</p>
+      <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">Every received batch is tracked individually — its stock, shelf life, quality status and holds. Batches closest to expiry are always used first.</p>
       <div data-el="body"></div>
     </div>`);
 

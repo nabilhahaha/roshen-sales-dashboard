@@ -64,7 +64,7 @@ function paint() {
   const h = ED.header, ro = ED.readonly, isNew = ED.id == null, dis = ro ? 'disabled' : '';
   let banner = '';
   if (ro && h.status !== ORDER_STATUS.DRAFT)
-    banner = `<div class="sc-locked-banner">🔒 This purchase order is <b>&nbsp;${esc(h.status)}&nbsp;</b> and locked — it is the reference document for its Proforma Invoice.</div>`;
+    banner = `<div class="sc-locked-banner">🔒 This PI is <b>&nbsp;${esc(h.status)}&nbsp;</b> and locked.</div>`;
   else if (ro)
     banner = `<div class="sc-locked-banner" style="background:rgba(143,163,189,.12);border-color:var(--border);color:var(--text-secondary)">👁 View mode <button class="sc-btn sm" style="margin-left:6px" data-act="unlock">✏️ Edit</button></div>`;
 
@@ -77,9 +77,9 @@ function paint() {
     <button class="sc-btn sm" style="margin-left:auto" data-act="openPI">🧾 Open Validation Report</button></div></div>`;
 
   mount(ROOT, `
-    <div class="sc-card-h"><h3>${isNew ? '➕ New Purchase Order' : '📄 Purchase Order ' + esc(h.order_number)}</h3>
+    <div class="sc-card-h"><h3>${isNew ? '➕ New Purchase Invoice (PI)' : '📄 Purchase Invoice (PI) ' + esc(h.order_number)}</h3>
       <div class="sc-spacer"></div>${orderBadge(h.status)}
-      <button class="sc-btn sm ghost" style="margin-left:10px" data-act="back">← Back to Orders</button></div>
+      <button class="sc-btn sm ghost" style="margin-left:10px" data-act="back">← All PIs</button></div>
     ${banner}
     <div class="sc-card"><div class="sc-form-grid">
       ${field('Order Number', `<input class="sc-input" readonly value="${esc(isNew ? '(auto-generated on save)' : h.order_number)}">`)}
@@ -93,7 +93,7 @@ function paint() {
     <div data-el="receiving"></div>
     <div data-el="attachments"></div>
     <div class="sc-card">
-      <div class="sc-card-h"><h3>📦 Order Details</h3><div class="sc-spacer"></div>${ro ? '' : '<div data-el="combo" style="min-width:340px"></div>'}</div>
+      <div class="sc-card-h"><h3>📦 Items</h3><div class="sc-spacer"></div>${ro ? '' : '<div data-el="combo" style="min-width:340px"></div>'}</div>
       <div data-el="lines"></div>
       <div class="sc-summary" data-el="summary"></div>
     </div>
@@ -145,13 +145,13 @@ function paintDashboard(el, dash) {
         ${r.expected_arrival ? `<div style="font-size:10px;color:var(--text-muted)">next ETA ${esc(String(r.expected_arrival).slice(0, 16).replace('T', ' '))}</div>` : ''}</td>
       <td>${lineChip(r.line_status)} ${invChip(r.invoice_status)}${r.shipment_status !== '—' && r.shipment_status !== 'Received' ? ' ' + statusBadge(r.shipment_status) : ''}</td></tr>`).join('');
   el.innerHTML = `<div class="sc-card">
-    <div class="sc-card-h"><h3>📦 Receiving Progress</h3><div class="sc-spacer"></div>
+    <div class="sc-card-h"><h3>📦 Delivery Progress</h3><div class="sc-spacer"></div>
       <span style="font-size:12.5px;color:var(--text-secondary)">Total Ordered <b>${qty(s.ordered)}</b> · Total Received <b>${qty(s.received)}</b> · Remaining <b>${qty(s.remaining)}</b> · Overall <b>${pct}%</b> · ${orderBadge(ED.header.status)}</span></div>
     <div style="display:flex;align-items:center;gap:14px;margin:0 0 8px">
-      <p style="font-size:11.5px;color:var(--text-muted);margin:0;flex:1">Live per item — click a line for its delivery notes, receipts and batches. The PI closes automatically when every ordered quantity is received.</p>
+      <p style="font-size:11.5px;color:var(--text-muted);margin:0;flex:1">Click a line to see its deliveries, receipts and batches. The PI closes automatically when everything is received.</p>
       ${completedN > 0 ? `<label style="font-size:11.5px;color:var(--text-secondary);display:flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap">
         <input type="checkbox" data-el="showdone" ${DASH_SHOW_ALL ? 'checked' : ''}> show ${completedN} completed item(s)</label>` : ''}</div>
-    ${tableWrap(`<table class="sc-table"><thead><tr><th>Item Code / Roshen</th><th>Description</th><th class="num">Ordered</th><th class="num">Delivered</th><th class="num">Received</th><th class="num">Remaining</th><th>% Complete</th><th class="num">DNs</th><th>Last Delivery</th><th>Status</th></tr></thead><tbody>${rows ||
+    ${tableWrap(`<table class="sc-table"><thead><tr><th>Item Code / Roshen</th><th>Description</th><th class="num">Ordered Qty</th><th class="num">Delivered Qty</th><th class="num">Received Qty</th><th class="num">Remaining Qty</th><th>Delivery Progress</th><th class="num">Deliveries</th><th>Last Delivery</th><th>Status</th></tr></thead><tbody>${rows ||
       '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:16px">All items completely received 🎉</td></tr>'}</tbody></table>`)}
   </div>`;
   const toggle = el.querySelector('[data-el="showdone"]');
@@ -171,7 +171,7 @@ function openLineDrill(r) {
       <td>${statusBadge(x.status)}</td>
       <td style="font-size:11px;color:var(--text-muted)">${x.expected_delivery_at ? 'ETA ' + esc(String(x.expected_delivery_at).slice(0, 16).replace('T', ' ')) : ''}</td>
       <td class="num"><b>${qty(x.cases)}</b> ctn</td></tr>`).join('')}</tbody></table>` : none)}
-    ${sec('📦 Goods Receipts (' + d.grs.length + ')', d.grs.length ? `<table class="sc-table" style="min-width:0"><tbody>${d.grs.map((x) => `<tr>
+    ${sec('📦 Warehouse Receipts (' + d.grs.length + ')', d.grs.length ? `<table class="sc-table" style="min-width:0"><tbody>${d.grs.map((x) => `<tr>
       <td class="mono"><b>${esc(x.grn_number)}</b></td><td>${esc((x.released_at || x.receipt_date || '').slice(0, 10))}</td>
       <td>${statusBadge(x.status)}</td><td>${esc(x.warehouse || '—')}</td>
       <td class="num"><b>${qty(x.cases)}</b> received</td></tr>`).join('')}</tbody></table>` : none)}
@@ -191,7 +191,7 @@ function renderActions() {
   let btns = '';
   if (!ED.readonly) {
     btns += '<button class="sc-btn primary" data-act="save">💾 Save Draft</button>';
-    btns += '<button class="sc-btn green" data-act="approve">✅ Approve Order</button>';
+    btns += '<button class="sc-btn green" data-act="approve">✅ Approve PI</button>';
     if (isNew) btns += '<button class="sc-btn" data-act="importxl">📥 Import from Excel</button>';
   } else if (h.status === ORDER_STATUS.APPROVED) {
     btns += ED.pi ? '<button class="sc-btn primary" data-act="openPI">🧾 Open PI Validation</button>'

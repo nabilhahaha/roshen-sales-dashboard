@@ -3,9 +3,9 @@ export const NAV = [
   { group: 'Overview', items: [{ id: 'dashboard', icon: '📊', label: 'Dashboard' }] },
   { group: 'Procurement', items: [
     { id: 'sku-master', icon: '🧾', label: 'SKU Master' },
-    { id: 'purchase-orders', icon: '🛒', label: 'Purchase Orders' },
+    { id: 'purchase-orders', icon: '🛒', label: 'Purchase Invoices' },
     { id: 'open-orders', icon: '⏳', label: 'Open Orders' },
-    { id: 'order-history', icon: '📋', label: 'Order History' },
+    { id: 'order-history', icon: '📋', label: 'PI History' },
   ] },
   { group: 'Supplier Documents', items: [
     { id: 'pi-import', icon: '📥', label: 'PI Import' },
@@ -15,7 +15,7 @@ export const NAV = [
   ] },
   { group: 'Logistics', items: [
     { id: 'delivery-notes', icon: '🚚', label: 'Delivery Notes' },
-    { id: 'goods-receiving', icon: '📦', label: 'Goods Receiving' },
+    { id: 'goods-receiving', icon: '📦', label: 'Warehouse Receiving' },
     { id: 'inventory', icon: '🏬', label: 'Inventory' },
     { id: 'shipment', icon: '🛫', label: 'Shipment', soon: true },
     { id: 'batch-tracking', icon: '🔖', label: 'Batch Tracking' },

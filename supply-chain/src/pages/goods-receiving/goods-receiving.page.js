@@ -34,9 +34,9 @@ async function renderList(root, ctx) {
     <td>${statusBadge(g.status)}</td></tr>`).join('')
     || '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:22px">No goods receipts yet. Create one from a matched delivery note.</td></tr>';
   mount(root, `
-    <div class="sc-card-h"><h3>🏬 Goods Receiving</h3><span class="sc-badge none" style="margin-left:8px">${grs.length}</span>
+    <div class="sc-card-h"><h3>🏬 Warehouse Receiving</h3><span class="sc-badge none" style="margin-left:8px">${grs.length}</span>
       <div class="sc-spacer"></div><button class="sc-btn sm ghost" data-act="dn">Delivery Notes →</button></div>
-    <div class="sc-card"><p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">Receive each batch individually. Inventory increases only for released batches.</p>
+    <div class="sc-card"><p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">Check and receive each batch. Only released batches enter the warehouse.</p>
       ${tableWrap(`<table class="sc-table"><thead><tr><th>GRN #</th><th>DN</th><th>PO</th><th>Warehouse</th><th>Date</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`)}</div>`);
   delegate(root, {
     dn: () => ctx.navigate('delivery-notes'),
@@ -69,7 +69,7 @@ async function renderDetail(root, ctx, grId) {
       <td class="mono"><b>${esc(b.roshen_id || b.item_code)}</b><div style="font-size:11px;color:var(--text-muted)">${esc(b.description || '')}</div></td>
       <td class="mono">${esc(b.batch_no || '—')}</td>
       <td>${esc(b.expiry_date || '—')}</td>
-      <td>${shelfChip(sl)}${sl.belowMinimum ? '<div style="font-size:10.5px;color:#E03131;margin-top:2px">Below receiving min</div>' : ''}</td>
+      <td>${shelfChip(sl)}${sl.belowMinimum ? '<div style="font-size:10.5px;color:#E03131;margin-top:2px">Shelf life below minimum</div>' : ''}</td>
       <td class="num">${qty(b.delivered_cases)}</td>
       <td class="num">${recv}</td>
       <td>${ctrl}</td></tr>`;
@@ -78,7 +78,7 @@ async function renderDetail(root, ctx, grId) {
   const anyBelow = gr.batches.some((b) => { const sl = shelfLife(skuFor(b), { expiry_date: b.expiry_date, manufacturing_date: b.manufacturing_date }, today()); return sl.belowMinimum; });
 
   mount(root, `
-    <div class="sc-card-h"><h3>🏬 ${esc(gr.grn_number || 'Goods Receipt')}</h3><div class="sc-spacer"></div>
+    <div class="sc-card-h"><h3>🏬 ${esc(gr.grn_number || 'Warehouse Receipt')}</h3><div class="sc-spacer"></div>
       ${statusBadge(gr.status)}<button class="sc-btn sm ghost" style="margin-left:10px" data-act="back">← Goods Receiving</button></div>
     <div class="sc-card"><div class="sc-form-grid">
       <div class="sc-field"><label>PO</label><input class="sc-input" readonly value="${esc((gr.order && gr.order.order_number) || '')}"></div>
@@ -91,7 +91,7 @@ async function renderDetail(root, ctx, grId) {
     </div>
     ${done ? `<div class="sc-card"><span class="sc-badge confirmed">Receipt ${esc(gr.status)}</span> — released batches have been posted to inventory.</div>`
       : `<div class="sc-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-        <button class="sc-btn green" data-act="release">✅ Save &amp; Release Goods Receipt</button>
+        <button class="sc-btn green" data-act="release">✅ Confirm &amp; Receive into Warehouse</button>
         <span style="font-size:12px;color:var(--text-secondary)">Released batches post to inventory as movements; rejected batches do not. This updates the PO received balance.</span></div>`}`);
 
   wire(root, { back: () => ctx.navigate('goods-receiving') });

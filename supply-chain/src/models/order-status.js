@@ -18,6 +18,14 @@ export const ORDER_STAGES = [
   ORDER_STATUS.REVISION_APPLIED, ORDER_STATUS.PI_APPROVED, ORDER_STATUS.READY_FOR_SHIPMENT,
 ];
 
+// Business-facing display names (display only; stored values unchanged).
+export const ORDER_STATUS_DISPLAY = {
+  'PI Imported': 'PI Received',
+  'Revision Required': 'Changes Requested',
+  'Revision Applied': 'Changes Applied',
+  'Ready for Shipment': 'Ready to Ship',
+};
+
 export const ORDER_STATUS_VARIANT = {
   Draft: 'draft',
   Approved: 'approved',

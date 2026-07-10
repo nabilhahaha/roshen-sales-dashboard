@@ -57,9 +57,9 @@ async function renderList(root, ctx) {
       <div class="sc-spacer"></div>
       <span style="font-size:12px">${chips}</span></div>
     <div class="sc-card">
-      <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">Supplier invoices are received documents. A PO / delivery note can carry several invoices (partial invoicing) plus credit and debit notes. Each invoice reconciles line-by-line against the PO ↔ delivery-note baseline. Upload a new invoice from its delivery note.</p>
+      <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">Each supplier invoice is checked line-by-line against its delivery note and the PI. Upload a new invoice from its delivery note.</p>
       ${tableWrap(`<table class="sc-table"><thead><tr>
-        <th>Number</th><th>Type</th><th>Date</th><th>PO</th><th>DN</th><th>Supplier</th>
+        <th>Number</th><th>Type</th><th>Date</th><th>PI</th><th>Delivery Note</th><th>Supplier</th>
         <th class="num">Net</th><th class="num">Grand</th><th>Status</th></tr></thead>
         <tbody>${rows}</tbody></table>`)}
     </div>`);
@@ -147,7 +147,7 @@ async function renderInvoiceDetail(root, ctx, invoiceId) {
       <button class="sc-btn sm ghost" style="margin-left:10px" data-act="back">← Invoices</button></div>
     ${matchBanner}
     <div class="sc-card"><div class="sc-form-grid">
-      <div class="sc-field"><label>PO</label><input class="sc-input" readonly value="${esc((inv.order && inv.order.order_number) || '—')}"></div>
+      <div class="sc-field"><label>PI</label><input class="sc-input" readonly value="${esc((inv.order && inv.order.order_number) || '—')}"></div>
       <div class="sc-field"><label>Delivery Note</label><input class="sc-input" readonly value="${esc((inv.delivery_note && inv.delivery_note.dn_number) || inv.dn_reference || '—')}"></div>
       <div class="sc-field"><label>Invoice Date</label><input class="sc-input" readonly value="${esc(inv.invoice_date || '—')}"></div>
       <div class="sc-field"><label>Supply Date</label><input class="sc-input" readonly value="${esc(inv.supply_date || '—')}"></div>
@@ -157,8 +157,8 @@ async function renderInvoiceDetail(root, ctx, invoiceId) {
       <div class="sc-field"><label>Seller VAT (ZATCA)</label><input class="sc-input" readonly value="${esc(z.seller_vat || '—')}"></div>
       <div class="sc-field"><label>Buyer VAT (ZATCA)</label><input class="sc-input" readonly value="${esc(z.buyer_vat || '—')}"></div>
     </div></div>
-    <div class="sc-card"><div class="sc-card-h"><h3>📦 Lines &amp; line-level match</h3><div class="sc-spacer"></div>
-      <span style="font-size:11px;color:var(--text-muted)">invoiced vs expected (delivered @ PO price, net of prior invoices)</span></div>
+    <div class="sc-card"><div class="sc-card-h"><h3>📦 Invoice Lines vs Delivery</h3><div class="sc-spacer"></div>
+      <span style="font-size:11px;color:var(--text-muted)">billed vs delivered, at PI prices</span></div>
       <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Roshen / Code</th><th>Description</th><th class="num">Invoiced</th><th class="num">Expected</th><th class="num">Price/Case</th><th class="num">Taxable</th><th class="num">VAT</th><th>Match</th></tr></thead><tbody>${lineRows}</tbody></table></div></div>
     ${disputeCard}
     <div data-el="si-attachments"></div>
@@ -198,7 +198,7 @@ async function renderInvoiceDetail(root, ctx, invoiceId) {
 
 // ---- helpers / modals ----------------------------------------------
 const MATCH = { matched: 'confirmed', partial: 'pi', qty_variance: 'closed', price_variance: 'closed', tax_variance: 'closed', missing: 'draft', extra: 'closed', bound: 'none', unbound: 'draft' };
-const MATCH_LABEL = { matched: 'Matched', partial: 'Partial', qty_variance: 'Qty', price_variance: 'Price', tax_variance: 'Tax', missing: 'Missing', extra: 'Extra', bound: 'Bound', unbound: 'Unbound' };
+const MATCH_LABEL = { matched: 'Matched', partial: 'Partial', qty_variance: 'Qty diff', price_variance: 'Price diff', tax_variance: 'Tax diff', missing: 'Missing', extra: 'Extra', bound: 'Bound', unbound: 'Not matched' };
 const matchChip = (m) => `<span class="sc-badge ${MATCH[m] || 'none'}">${esc(MATCH_LABEL[m] || m)}</span>`;
 const DKIND = { qty_diff: 'Quantity', price_diff: 'Price', tax_diff: 'Tax', missing: 'Missing', extra: 'Extra' };
 const disputeKind = (k) => `<span class="sc-badge closed">${esc(DKIND[k] || k)}</span>`;
