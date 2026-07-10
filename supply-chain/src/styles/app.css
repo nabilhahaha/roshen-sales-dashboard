@@ -400,3 +400,27 @@ button.is-busy,.sc-btn.is-busy{display:inline-flex;align-items:center;gap:7px;ju
   .bf-meta{width:100%;order:9}
   .bf-cards{grid-template-columns:repeat(2,1fr)}
 }
+
+/* ---- V2.5 Business File: progress tracker · stat strip · quick actions ---- */
+.bf-track{display:flex;align-items:center;gap:4px;flex-wrap:wrap;width:100%;order:8;margin-top:6px}
+.bf-step{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;color:var(--text-muted);
+  border:1px solid var(--border);border-radius:20px;padding:2px 9px;background:var(--bg-input);white-space:nowrap}
+.bf-step.done{color:#2FB344;border-color:#2FB34455;background:#2FB34411}
+.bf-track-line{flex:none;width:12px;height:2px;background:var(--border)}
+.bf-stats{display:flex;gap:6px;flex-wrap:wrap;width:100%;order:9;margin-top:6px}
+.bf-stat{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;border:1px solid var(--border);
+  border-radius:8px;padding:2px 8px;background:var(--bg-input)}
+.bf-stat span{color:var(--text-muted);letter-spacing:.04em;text-transform:uppercase;font-size:9.5px}
+.bf-stat b{font-size:11.5px}
+.bf-stat.bad{border-color:#E0313155;background:#E0313111}
+.bf-stat.bad b{color:#E03131}
+.bf-qa{display:inline-flex;gap:2px;margin-left:4px}
+.bf-qbtn{border:1px solid var(--border);background:var(--bg-input);color:var(--text-secondary);border-radius:7px;
+  padding:2px 7px;font-size:12px;cursor:pointer;line-height:1.4}
+.bf-qbtn:hover:not(:disabled){background:var(--bg-card-hover);color:var(--text-primary)}
+.bf-qbtn:disabled{opacity:.35;cursor:default}
+.bf-minitl{margin:10px 0 4px;border-left:2px solid var(--border);padding-left:12px}
+.bf-tl-row{display:flex;align-items:center;gap:8px;font-size:12px;padding:3px 0;position:relative}
+.bf-tl-date{font-size:10.5px;color:var(--text-muted);min-width:44px;font-weight:700}
+.bf-tl-dot{width:7px;height:7px;border-radius:50%;background:var(--gold,#E8B54A);position:absolute;left:-16.5px}
+@media(max-width:640px){.bf-qa{display:none}.bf-track{gap:3px}.bf-step{padding:2px 6px;font-size:10px}}
