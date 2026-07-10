@@ -1,12 +1,22 @@
 // Warehouse Receiving — list of receipts + the receiving screen.
 //
-// UX: healthy batches (shelf life ≥ the SKU minimum) are auto-accepted and
-// received in one click; the user only reviews the EXCEPTIONS (below-minimum
-// batches) and decides Accept Exception (with reason + approver, audited) or
-// Reject. Received = Delivered by default ("Full Delivery"); unticking allows
-// partial quantities. UI ONLY — every decision still flows through the same
-// services (setBatchQc / recordShelfLifeException / releaseGoodsReceipt):
-// shelf-life math, validation gates, audit and inventory posting unchanged.
+// UX: healthy batches (shelf life ≥ the SKU minimum) are auto-accepted; the
+// user only reviews the EXCEPTIONS (below-minimum batches) and decides Accept
+// Exception (with reason + approver, audited) or Reject. Received = Delivered
+// by default ("Full Delivery"); unticking allows partial quantities.
+//
+// Fully automatic completion: the receipt POSTS ITSELF the moment the last
+// exception is decided and (if any exception was accepted) the approval
+// reason + approver are filled — no manual "Confirm" click. Auto-posting is
+// only ever triggered by a user action on this screen (a decision click or
+// an approval-field change), never by merely opening it. Clean deliveries
+// normally never reach this screen pending — they auto-release at DN
+// confirmation (autoReleaseIfClean); the one-click "Receive All Healthy
+// Items" button remains as a fallback for receipts that a release guard
+// (e.g. a disputed over-delivery) left pending. UI ONLY — every decision
+// still flows through the same services (setBatchQc /
+// recordShelfLifeException / releaseGoodsReceipt): shelf-life math,
+// validation gates, audit and inventory posting unchanged.
 import { mount, delegate, wire, qsa, qs } from '../../utils/dom.js';
 import { esc, qty, today } from '../../utils/format.js';
 import { loading, emptyState, tableWrap } from '../../components/table/table.js';
@@ -150,7 +160,7 @@ async function renderDetail(root, ctx, grId) {
         </td></tr>`;
     }).join('');
 
-    const canConfirm = s.unresolved === 0;
+    const needApproval = anyAcceptedException && !((paint._reason || '').trim() && (paint._by || '').trim());
     mount(root, `
       <div class="sc-card-h"><h3>🏬 ${esc(gr.grn_number || 'Warehouse Receipt')}</h3><div class="sc-spacer"></div>
         <span style="font-size:12px;color:var(--text-secondary)">PI <b class="mono">${esc((gr.order && gr.order.order_number) || '')}</b> · DN <b class="mono">${esc((gr.delivery_note && gr.delivery_note.dn_number) || '')}</b> · ${esc(gr.warehouse || '—')}</span>
@@ -189,12 +199,14 @@ async function renderDetail(root, ctx, grId) {
 
       <div class="sc-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
         ${excRows.length === 0
-          ? `<button class="sc-btn green" data-act="confirm">✅ Receive All Healthy Items</button>`
+          ? `<button class="sc-btn green" data-act="confirm">✅ Receive All Healthy Items</button>
+             <span style="font-size:12px;color:var(--text-secondary)">Accepted items post to the warehouse and update the PI automatically.</span>`
           : `${s.unresolved ? `<button class="sc-btn" style="background:${C.yellow};color:#1a1a1a" data-act="gotoexc">🟡 Review Exceptions (${s.unresolved})</button>` : ''}
-             <button class="sc-btn green" data-act="confirm" ${canConfirm ? '' : 'disabled'}>✔ Confirm Warehouse Receipt</button>`}
-        <span style="font-size:12px;color:var(--text-secondary)">${canConfirm
-          ? 'Accepted items post to the warehouse and update the PI automatically.'
-          : 'Resolve every exception to enable the confirmation.'}</span>
+             <span style="font-size:12px;color:var(--text-secondary)">${s.unresolved
+               ? '⚡ The receipt completes automatically once every exception is decided — no confirmation click needed. Reject any damaged healthy line first.'
+               : needApproval
+                 ? '⚡ Enter the exception reason and approver above — the receipt then posts automatically.'
+                 : 'Posting the warehouse receipt…'}</span>`}
       </div>`);
 
     // ---- interactions (state only — no service calls until confirm) ----
@@ -214,15 +226,35 @@ async function renderDetail(root, ctx, grId) {
       r.received = Math.max(0, Number(inp.value || 0));
       keepApproval(); paint();
     }));
+    // approval fields: filling reason + approver is the FINAL user action on an
+    // accepted exception — the receipt posts itself as soon as both are set
+    ['ex-reason', 'ex-by', 'ex-at'].forEach((sel) => {
+      const inp = qs(`[data-el="${sel}"]`, root);
+      if (inp) inp.addEventListener('change', () => { keepApproval(); maybeAutoConfirm(); });
+    });
     wire(root, {
       back: () => ctx.navigate('goods-receiving'),
       gotoexc: () => { const el = qs('#exceptions', root); if (el) el.scrollIntoView({ behavior: 'smooth' }); },
-      exaccept: (d) => { keepApproval(); ROWS[+d.id].decision = 'accept-exception'; paint(); },
-      exreject: (d) => { keepApproval(); ROWS[+d.id].decision = 'reject'; paint(); },
+      exaccept: (d) => { keepApproval(); ROWS[+d.id].decision = 'accept-exception'; paint(); maybeAutoConfirm(); },
+      exreject: (d) => { keepApproval(); ROWS[+d.id].decision = 'reject'; paint(); maybeAutoConfirm(); },
       rejecthealthy: (d) => { keepApproval(); ROWS[+d.id].decision = 'reject'; paint(); },
       unreject: (d) => { keepApproval(); ROWS[+d.id].decision = 'accept'; paint(); },
       confirm: () => confirmReceipt(),
     });
+  }
+
+  // ---- automatic completion: fires only from user actions above (a decision
+  // click or an approval-field change) — never on merely opening the screen ----
+  function maybeAutoConfirm() {
+    if (saving) return;
+    if (summary().unresolved > 0) return;                 // exceptions still awaiting a decision
+    const excAccepted = ROWS.some((r) => r.belowMin && r.decision === 'accept-exception');
+    if (excAccepted) {
+      const v = (sel) => { const n = qs(`[data-el="${sel}"]`, root); return n ? n.value.trim() : ''; };
+      if (!v('ex-reason') || !v('ex-by')) return;         // audited approval not complete yet
+    }
+    toast('All exceptions resolved — completing the warehouse receipt…', 'info');
+    confirmReceipt();
   }
 
   // ---- confirm: identical service flow as before (UI is the only change) ----
