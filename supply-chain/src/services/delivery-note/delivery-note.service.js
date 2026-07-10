@@ -147,6 +147,17 @@ export async function createDeliveryNote(dn) {
     dn_date: dn.header.dn_date || null,
     supplier: dn.header.supplier || null,
     po_reference: dn.header.po_reference || null,
+    // full document header block — preserved exactly as imported
+    document_type: dn.header.document_type || null,
+    supplier_vat: dn.header.supplier_vat || null,
+    supplier_cr: dn.header.supplier_cr || null,
+    supplier_address: dn.header.supplier_address || null,
+    supplier_short_address: dn.header.supplier_short_address || null,
+    supplier_bank: dn.header.supplier_bank || null,
+    supplier_iban: dn.header.supplier_iban || null,
+    customer: dn.header.customer || null,
+    customer_vat: dn.header.customer_vat || null,
+    customer_cr: dn.header.customer_cr || null,
     currency: dn.header.currency || 'SAR',
     total_cartons: dn.header.total_cartons != null ? dn.header.total_cartons : null,
     notes: dn.header.notes || null,
@@ -250,9 +261,12 @@ function pickPrimaryInvoice(invoices) {
   return active.slice().sort((a, b) => rank(b.status) - rank(a.status) || (b.id - a.id))[0] || null;
 }
 
-export async function setDeliveryNoteStatus(id, status) {
+export async function setDeliveryNoteStatus(id, status, { actor } = {}) {
   const patch = { status, updated_at: new Date().toISOString() };
-  if (status === 'Received') patch.received_at = new Date().toISOString();
+  if (status === 'Received') {
+    patch.received_at = new Date().toISOString();
+    if (actor) patch.received_by = actor;   // warehouse confirmation block
+  }
   const { error } = await getClient().from('delivery_notes').update(patch).eq('id', id);
   if (error) throw error;
 }

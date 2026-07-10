@@ -114,6 +114,9 @@ export async function startInvoiceUpload(root, ctx, dnId) {
           ${hf('Buyer', 'buyer', p.header.buyer)}
           ${hf('PO Reference', 'po_reference', p.header.po_reference)}
           ${hf('DN Reference', 'dn_reference', p.header.dn_reference)}
+          ${hf('Due Date', 'due_date', p.header.due_date, 'date')}
+          ${hf('Payment Terms', 'payment_terms', p.header.payment_terms)}
+          ${hf('Notes (document)', 'doc_notes', p.header.doc_notes)}
           ${hf('Total Taxable (net)', 'taxable', p.totals.taxable, 'number')}
           ${hf('Total VAT', 'vat', p.totals.vat, 'number')}
           ${hf('Grand Total', 'grand', p.totals.grand, 'number')}
@@ -121,9 +124,9 @@ export async function startInvoiceUpload(root, ctx, dnId) {
       <div class="sc-card"><div class="sc-card-h"><h3>🧾 ZATCA fields</h3><div class="sc-spacer"></div>
         <span style="font-size:11px;color:var(--text-muted)">e-invoicing identifiers — stored with the invoice for later ZATCA submission</span></div>
         <div class="sc-form-grid">
-          ${hf('Seller VAT (TRN)', 'z_seller_vat', (p.header.zatca || {}).seller_vat)}
-          ${hf('Seller CR', 'z_seller_cr', (p.header.zatca || {}).seller_cr)}
-          ${hf('Buyer VAT (TRN)', 'z_buyer_vat', (p.header.zatca || {}).buyer_vat)}
+          ${hf('Seller VAT (TRN)', 'z_seller_vat', (p.header.zatca || {}).seller_vat || p.header.seller_vat)}
+          ${hf('Seller CR', 'z_seller_cr', (p.header.zatca || {}).seller_cr || p.header.seller_cr)}
+          ${hf('Buyer VAT (TRN)', 'z_buyer_vat', (p.header.zatca || {}).buyer_vat || p.header.buyer_vat)}
           ${hf('Buyer CR', 'z_buyer_cr', (p.header.zatca || {}).buyer_cr)}
           ${hf('Invoice Type Code', 'z_type_code', (p.header.zatca || {}).invoice_type_code || '388')}
           ${hf('Payment Means', 'z_payment_means', (p.header.zatca || {}).payment_means)}

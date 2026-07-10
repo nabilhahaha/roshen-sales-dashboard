@@ -14,6 +14,7 @@ import {
   markDnInTransit, setExpectedDelivery,
 } from '../../services/delivery-note/delivery-note.service.js';
 import { getFulfillmentWithSummary } from '../../services/fulfillment/fulfillment.service.js';
+import { receivingValidation } from '../../services/delivery-note/dn-receiving-validation.js';
 import { listSkus, indexByRoshen, indexByCode } from '../../services/sku/sku.service.js';
 import { matchInvoiceToDeliveryNote, getInvoiceDocument } from '../../services/supplier-invoice/supplier-invoice.service.js';
 import { createGoodsReceiptFromDeliveryNote } from '../../services/goods-receiving/goods-receiving.service.js';
@@ -67,6 +68,39 @@ export async function renderDnDetail(root, ctx, dnId) {
   }).join('');
 
   const anyDisputed = (ful.summary && ful.summary.disputed > 0);
+
+  // Receiving validation — one row per physical batch: shelf life vs the
+  // SKU Master minimum, with the Accept / Approval Required / Reject decision.
+  const rv = receivingValidation(dn, ful.rows || [], skuFor, today());
+  const pctBar = (pct, color) => pct == null ? '<span style="color:var(--text-muted)">n/a</span>'
+    : `<div style="display:flex;align-items:center;gap:7px;min-width:120px">
+        <div style="flex:1;height:7px;border-radius:4px;background:var(--border-light);overflow:hidden">
+          <div style="width:${Math.max(0, Math.min(100, pct))}%;height:100%;background:${color}"></div></div>
+        <b style="font-size:11.5px;min-width:38px">${pct}%</b></div>`;
+  const rvRows = rv.rows.map((r) => `<tr${r.decision.code === 'reject' ? ' style="background:rgba(224,49,49,.05)"' : ''}>
+      <td class="mono"><b>${esc(r.roshen_id || r.sku_code || '')}</b><div style="font-size:10.5px;color:var(--text-muted)">${esc(r.sku_code || '')}</div></td>
+      <td style="font-size:11.5px;max-width:220px">${esc((r.description || '').slice(0, 44))}</td>
+      <td class="mono">${esc(r.batch_no || '—')}</td>
+      <td style="font-size:11.5px">${r.manufacturing_date ? esc(r.manufacturing_date) : r.mfg_implied ? `<span title="No manufacturing date on the document — implied from the SKU's total shelf life">${esc(String(r.mfg_implied.toISOString ? r.mfg_implied.toISOString().slice(0, 10) : r.mfg_implied))}*</span>` : '—'}</td>
+      <td style="font-size:11.5px">${esc(r.expiry_date || '—')}</td>
+      <td class="num">${r.ordered_cases == null ? '—' : qty(r.ordered_cases)}</td>
+      <td class="num">${qty(r.batch_cases)}<div style="font-size:10px;color:var(--text-muted)">${r.delivered_cases == null ? '' : 'line ' + qty(r.delivered_cases)}</div></td>
+      <td class="num">${r.remaining_cases == null ? '—' : qty(r.remaining_cases)}</td>
+      <td class="num">${r.remaining_days == null ? '—' : qty(r.remaining_days)}</td>
+      <td>${pctBar(r.remaining_pct, r.decision.color)}</td>
+      <td class="num">${r.required_pct == null ? '—' : r.required_pct + '%'}</td>
+      <td style="white-space:nowrap"><span style="color:${r.decision.color};font-weight:700;font-size:11.5px">${r.decision.icon} ${esc(r.decision.label)}</span></td>
+    </tr>`).join('');
+  const validationCard = rv.rows.length ? `<div class="sc-card">
+    <div class="sc-card-h"><h3>🧪 Receiving Validation — Shelf Life</h3><div class="sc-spacer"></div>
+      <span style="font-size:12px;color:var(--text-secondary)">🟢 <b>${rv.summary.accept}</b> · 🟡 <b>${rv.summary.approval}</b> · 🔴 <b>${rv.summary.reject}</b> of ${rv.summary.batches} batch(es)</span></div>
+    <p style="font-size:11.5px;color:var(--text-muted);margin:0 0 8px">Remaining % = (expiry − today) ÷ (expiry − manufacturing) · Required % comes from the SKU Master per item · * manufacturing date implied from the SKU's total shelf life. Batches below the required % need an approved exception at warehouse receiving.</p>
+    ${tableWrap(`<table class="sc-table"><thead><tr>
+      <th>SKU</th><th>Description</th><th>Batch</th><th>Mfg Date</th><th>Expiry Date</th>
+      <th class="num">Ordered Qty</th><th class="num">Delivered Qty</th><th class="num">Remaining Qty</th>
+      <th class="num">Remaining Days</th><th>Remaining Shelf Life %</th><th class="num">Required %</th><th>Status</th></tr></thead>
+      <tbody>${rvRows}</tbody></table>`)}
+  </div>` : '';
 
   let invoiceCard;
   if (!inv) {
@@ -135,8 +169,18 @@ export async function renderDnDetail(root, ctx, dnId) {
       <div class="sc-field"><label>Supplier</label><input class="sc-input" readonly value="${esc(dn.supplier || '—')}"></div>
       <div class="sc-field"><label>Total Cartons</label><input class="sc-input" readonly value="${esc(String(dn.total_cartons ?? '—'))}"></div>
       <div class="sc-field"><label>Warehouse</label><input class="sc-input" readonly value="${esc((dn.order && dn.order.warehouse) || '—')}"></div>
-    </div></div>
+    </div>
+    ${dn.document_type || dn.customer || dn.supplier_vat ? `<div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--border-light);font-size:11.5px;color:var(--text-secondary)">
+      ${dn.document_type ? `<span>Document: <b>${esc(dn.document_type)}</b></span>` : ''}
+      ${dn.supplier_vat ? `<span>Supplier VAT: <b class="mono">${esc(dn.supplier_vat)}</b></span>` : ''}
+      ${dn.supplier_cr ? `<span>Supplier CR: <b class="mono">${esc(dn.supplier_cr)}</b></span>` : ''}
+      ${dn.customer ? `<span>Customer: <b>${esc(dn.customer)}</b></span>` : ''}
+      ${dn.customer_vat ? `<span>Customer VAT: <b class="mono">${esc(dn.customer_vat)}</b></span>` : ''}
+      ${dn.supplier_bank ? `<span>Bank: <b>${esc(dn.supplier_bank)}</b>${dn.supplier_iban ? ` · <span class="mono">${esc(dn.supplier_iban)}</span>` : ''}</span>` : ''}
+      ${dn.received_by ? `<span>Received by: <b>${esc(dn.received_by)}</b></span>` : ''}
+    </div>` : ''}</div>
     <div class="erp-grid-2">${invoiceCard}${grCard}</div>
+    ${validationCard}
     <div class="sc-card"><div class="sc-card-h"><h3>📦 Lines &amp; Batches</h3><div class="sc-spacer"></div>
       <span style="font-size:11px;color:var(--text-muted)">delivered · remaining · disputed vs the PI · shelf life is live</span></div>
       <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Batch / Lot · Item</th><th>Expiry</th><th class="num">Delivered</th><th class="num">Remaining</th><th class="num">Disputed / Shelf</th><th>QC</th></tr></thead><tbody>${lineRows}</tbody></table></div></div>

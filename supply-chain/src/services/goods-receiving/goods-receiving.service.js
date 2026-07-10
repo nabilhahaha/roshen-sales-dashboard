@@ -126,6 +126,7 @@ export async function recordShelfLifeException(ex) {
     required_pct: ex.required_pct != null ? ex.required_pct : null,
     remaining_pct: ex.remaining_pct != null ? ex.remaining_pct : null,
     decision: ex.decision, reason: ex.reason || null, decided_by: ex.decided_by || null,
+    ...(ex.decided_at ? { decided_at: ex.decided_at } : {}),
   });
   if (error) throw error;
 }
@@ -237,7 +238,9 @@ export async function releaseGoodsReceipt(grId, opts = {}) {
     status, warehouse, released_at: new Date().toISOString(), updated_at: new Date().toISOString(),
   }).eq('id', grId);
   await c.from('delivery_notes').update({
-    status: rej === total ? 'Cancelled' : 'Received', received_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    status: rej === total ? 'Cancelled' : 'Received', received_at: new Date().toISOString(),
+    received_by: opts.releasedBy || null,   // warehouse confirmation block on the DN
+    updated_at: new Date().toISOString(),
   }).eq('id', gr.delivery_note_id);
   await syncOrderReceivingStatus(gr.order_id);
   return { status, released: rel, rejected: rej, total };

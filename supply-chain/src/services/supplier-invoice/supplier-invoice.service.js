@@ -124,6 +124,13 @@ export async function createSupplierInvoiceFromUpload(inv) {
     buyer: inv.header.buyer || null,
     currency: inv.header.currency || 'SAR',
     dn_reference: inv.header.dn_reference || null,
+    // financial document fields — preserved exactly as the document reads
+    due_date: inv.header.due_date || null,
+    payment_terms: inv.header.payment_terms || null,
+    seller_vat: inv.header.seller_vat || null,
+    seller_cr: inv.header.seller_cr || null,
+    buyer_vat: inv.header.buyer_vat || null,
+    doc_notes: inv.header.doc_notes || null,
     zatca: inv.zatca || null,
     total_taxable, total_vat, grand_total: grand,
     status: inv.status || 'Imported',

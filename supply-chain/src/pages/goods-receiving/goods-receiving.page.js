@@ -108,6 +108,49 @@ async function renderDetail(root, ctx, grId) {
     if (!Object.values(edits).some((e) => e.qc_result === 'Released')) {
       if (!confirm('No batch is marked Released — nothing will be added to inventory. Continue?')) return;
     }
+    const decisionOf = (b) => (edits[b.id] && edits[b.id].qc_result) || b.qc_result || 'Pending QC';
+
+    // Exception workflow: receiving a batch below its SKU's required shelf life
+    // cannot continue normally — the user must enter the Exception Reason and
+    // who approved it. Everything is stored in the audit trail.
+    const needApproval = gr.batches.filter((b) => {
+      if (decisionOf(b) !== 'Released') return false;
+      const sl = shelfLife(skuFor(b), { expiry_date: b.expiry_date, manufacturing_date: b.manufacturing_date }, today());
+      return sl.belowMinimum;
+    });
+    if (needApproval.length) return openExceptionModal(needApproval, edits, {});
+    doRelease(edits, null);
+  }
+
+  function openExceptionModal(batches, edits, preset) {
+    const nowLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    const list = batches.map((b) => {
+      const sl = shelfLife(skuFor(b), { expiry_date: b.expiry_date, manufacturing_date: b.manufacturing_date }, today());
+      return `<tr><td class="mono">${esc(b.roshen_id || b.item_code)}</td><td class="mono">${esc(b.batch_no || '—')}</td>
+        <td>${esc(b.expiry_date || '—')}</td>
+        <td class="num" style="color:#E03131"><b>${sl.remainingPct != null ? sl.remainingPct + '%' : 'n/a'}</b></td>
+        <td class="num">${sl.minPct != null ? sl.minPct + '%' : '—'}</td></tr>`;
+    }).join('');
+    modal('🟡 Shelf-life exception — approval required', `
+      <p style="font-size:12.5px;color:var(--text-secondary);margin-top:0">${batches.length} batch(es) are below the SKU's required remaining shelf life. Receiving cannot continue normally — record who approved the exception and why. This is stored permanently in the audit trail.</p>
+      <div class="sc-table-wrap" style="max-height:180px;overflow:auto"><table class="sc-table" style="min-width:0"><thead><tr><th>Item</th><th>Batch</th><th>Expiry</th><th class="num">Remaining %</th><th class="num">Required %</th></tr></thead><tbody>${list}</tbody></table></div>
+      <div class="sc-form-grid" style="margin-top:12px">
+        <div class="sc-field"><label>Exception Reason *</label><input id="ex-reason" class="sc-input" placeholder="e.g. urgent stock need — approved for fast rotation" value="${esc(preset.reason || '')}"></div>
+        <div class="sc-field"><label>Approved By *</label><input id="ex-by" class="sc-input" placeholder="Name of the approver" value="${esc(preset.by || '')}"></div>
+        <div class="sc-field"><label>Approval Date &amp; Time</label><input id="ex-at" class="sc-input" type="datetime-local" value="${esc(preset.at || nowLocal)}"></div>
+      </div>`, [
+      { label: '✅ Approve Exception & Receive', cls: 'green', onClick: () => {
+          const v = (id) => ((document.getElementById(id) || {}).value || '').trim();
+          const entered = { reason: v('ex-reason'), by: v('ex-by'), at: v('ex-at') };
+          if (!entered.reason) { toast('Enter the exception reason', 'err'); return openExceptionModal(batches, edits, entered); }
+          if (!entered.by) { toast('Enter who approved the exception', 'err'); return openExceptionModal(batches, edits, entered); }
+          doRelease(edits, entered);
+        } },
+      { label: 'Back — change QC decisions', cls: 'ghost' },
+    ]);
+  }
+
+  async function doRelease(edits, approval) {
     try {
       for (const b of gr.batches) {
         const e = edits[b.id] || {};
@@ -116,7 +159,8 @@ async function renderDetail(root, ctx, grId) {
         const rejected = decision === 'Rejected' ? b.delivered_cases : 0;
         await setBatchQc(b.id, { qc_result: decision, received_cases: received, rejected_cases: rejected });
 
-        // audit below-minimum decisions
+        // audit below-minimum decisions — accepted ones carry the entered
+        // exception reason + approver; rejections are recorded as such
         const sl = shelfLife(skuFor(b), { expiry_date: b.expiry_date, manufacturing_date: b.manufacturing_date }, today());
         if (sl.belowMinimum && (decision === 'Released' || decision === 'Rejected')) {
           await recordShelfLifeException({
@@ -124,11 +168,13 @@ async function renderDetail(root, ctx, grId) {
             item_code: b.item_code, roshen_id: b.roshen_id, batch_no: b.batch_no, expiry_date: b.expiry_date,
             required_pct: sl.minPct, remaining_pct: sl.remainingPct,
             decision: decision === 'Released' ? 'Accept Exception' : 'Reject Item',
-            reason: 'Warehouse QC decision', decided_by: 'goods-receiving',
+            reason: decision === 'Released' ? (approval && approval.reason) : 'Rejected at warehouse receiving',
+            decided_by: decision === 'Released' ? (approval && approval.by) : 'goods-receiving',
+            decided_at: decision === 'Released' && approval && approval.at ? new Date(approval.at).toISOString() : undefined,
           });
         }
       }
-      const res = await releaseGoodsReceipt(gr.id, { warehouse: gr.warehouse, costByKey: prices, releasedBy: 'goods-receiving' });
+      const res = await releaseGoodsReceipt(gr.id, { warehouse: gr.warehouse, costByKey: prices, releasedBy: (approval && approval.by) || 'goods-receiving' });
       toast(`Receipt ${res.status} — ${res.released} released, ${res.rejected} rejected`, 'ok');
       ctx.navigate('goods-receiving', { view: 'detail', grId: gr.id });
     } catch (e) { toast('Release failed: ' + (e.message || e), 'err'); }

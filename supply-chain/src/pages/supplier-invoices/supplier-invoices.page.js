@@ -153,10 +153,14 @@ async function renderInvoiceDetail(root, ctx, invoiceId) {
       <div class="sc-field"><label>Supply Date</label><input class="sc-input" readonly value="${esc(inv.supply_date || '—')}"></div>
       <div class="sc-field"><label>Supplier</label><input class="sc-input" readonly value="${esc(inv.supplier || '—')}"></div>
       <div class="sc-field"><label>Buyer</label><input class="sc-input" readonly value="${esc(inv.buyer || '—')}"></div>
+      <div class="sc-field"><label>Due Date</label><input class="sc-input" readonly value="${esc(inv.due_date || '—')}"></div>
+      <div class="sc-field"><label>Payment Terms</label><input class="sc-input" readonly value="${esc(inv.payment_terms || '—')}"></div>
       <div class="sc-field"><label>Net / VAT / Grand</label><input class="sc-input" readonly value="${money(inv.total_taxable)} / ${money(inv.total_vat)} / ${money(inv.grand_total)} ${esc(inv.currency || 'SAR')}"></div>
-      <div class="sc-field"><label>Seller VAT (ZATCA)</label><input class="sc-input" readonly value="${esc(z.seller_vat || '—')}"></div>
-      <div class="sc-field"><label>Buyer VAT (ZATCA)</label><input class="sc-input" readonly value="${esc(z.buyer_vat || '—')}"></div>
-    </div></div>
+      <div class="sc-field"><label>Seller VAT (ZATCA)</label><input class="sc-input" readonly value="${esc(z.seller_vat || inv.seller_vat || '—')}"></div>
+      <div class="sc-field"><label>Seller CR</label><input class="sc-input" readonly value="${esc(z.seller_cr || inv.seller_cr || '—')}"></div>
+      <div class="sc-field"><label>Buyer VAT (ZATCA)</label><input class="sc-input" readonly value="${esc(z.buyer_vat || inv.buyer_vat || '—')}"></div>
+    </div>
+    ${inv.doc_notes ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-top:8px">Document notes: <i>${esc(inv.doc_notes)}</i></div>` : ''}</div>
     <div class="sc-card"><div class="sc-card-h"><h3>📦 Invoice Lines vs Delivery</h3><div class="sc-spacer"></div>
       <span style="font-size:11px;color:var(--text-muted)">billed vs delivered, at PI prices</span></div>
       <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Roshen / Code</th><th>Description</th><th class="num">Invoiced</th><th class="num">Expected</th><th class="num">Price/Case</th><th class="num">Taxable</th><th class="num">VAT</th><th>Match</th></tr></thead><tbody>${lineRows}</tbody></table></div></div>
