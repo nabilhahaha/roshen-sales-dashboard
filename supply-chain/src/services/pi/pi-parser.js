@@ -67,7 +67,10 @@ export function mapColumns(headerRow) {
   };
 }
 
-function findLabelled(grid, tests) {
+// Find "Label | value" pairs anywhere on the sheet. valueTest (optional)
+// filters candidate values — e.g. require a digit so a bilingual document's
+// Arabic mirror-label in the same row is never mistaken for the value.
+function findLabelled(grid, tests, valueTest) {
   for (let r = 0; r < grid.length; r++) {
     const row = grid[r] || [];
     for (let c = 0; c < row.length; c++) {
@@ -75,7 +78,8 @@ function findLabelled(grid, tests) {
       if (!key) continue;
       if (tests.some((t) => t.test(key))) {
         for (let c2 = c + 1; c2 < row.length; c2++) {
-          if (row[c2] != null && norm(row[c2]) !== '') return { value: norm(row[c2]), row: r, col: c2 };
+          const v = norm(row[c2]);
+          if (v !== '' && (!valueTest || valueTest.test(v))) return { value: v, row: r, col: c2 };
         }
       }
     }
@@ -100,18 +104,55 @@ export function parseGrid(grid) {
 
   const piNo = findLabelled(grid, [/proforma\s*invoice/, /^pi\s*(no|number|#)/, /invoice\s*(no|number|#)/]);
   const dt = findLabelled(grid, [/^date:?$/, /invoice\s*date/, /pi\s*date/]);
-  const cust = findLabelled(grid, [/^customer:?$/, /bill\s*to/]);
-  const vat = findLabelled(grid, [/vat\s*(no|number|№|no\.)/]);
-  const cr = findLabelled(grid, [/cr\s*number|c\.?r\.?\s*no/]);
+  const cust = findLabelled(grid, [/^customer:?$/, /bill\s*to/], /[A-Za-z]/);
+  const vat = findLabelled(grid, [/^vat\s*(no|number|№|no\.)/], /\d/);
+  const cr = findLabelled(grid, [/^cr\s*number|^c\.?r\.?\s*no/], /\d/);
+  const custVat = findLabelled(grid, [/customer\s*vat/], /\d/);
+  const custCr = findLabelled(grid, [/customer\s*cr/], /\d/);
+  const shortAddr = findLabelled(grid, [/short\s*address/], /[A-Za-z0-9]/);
+  const salesman = findLabelled(grid, [/salesman/], /[A-Za-z]{2,}/);
   const pay = findLabelled(grid, [/payment\s*terms?/]);
   const del = findLabelled(grid, [/delivery\s*terms?/]);
+
+  // Document type — the title cell itself (e.g. PROFORMA INVOICE).
+  let documentType = null;
+  outer: for (let r = 0; r < grid.length; r++) {
+    for (const cell of grid[r] || []) {
+      const t = norm(cell);
+      if (/^(proforma|commercial|tax)\s+invoice$|^purchase\s+order$/i.test(t)) { documentType = t; break outer; }
+    }
+  }
 
   let supplier = null;
   for (let r = 0; r < Math.min(grid.length, 8) && !supplier; r++) {
     const row = grid[r] || [];
     for (let c = 0; c < row.length; c++) {
       const t = norm(row[c]);
-      if (t && /[A-Za-z]{3,}/.test(t) && !/vat|cr number|proforma/i.test(t)) { supplier = t; break; }
+      if (t && /[A-Za-z]{3,}/.test(t) && !/vat|cr number|proforma/i.test(t)) { supplier = t.replace(/^company[:\s]+/i, ''); break; }
+    }
+  }
+
+  // Supplier address — a top-of-document cell that reads like an address.
+  let supplierAddress = null;
+  for (let r = 0; r < Math.min(grid.length, 12) && !supplierAddress; r++) {
+    for (const cell of grid[r] || []) {
+      const t = norm(cell);
+      if (t && /office|street|\bstr\b|dist\.?|zip|p\.?o\.?\s*box|road|building/i.test(t) && !/short\s*address/i.test(t)) { supplierAddress = t; break; }
+    }
+  }
+
+  // Bank + IBAN — a cell starting with "IBAN"; the bank name is the row's label cell.
+  let supplierBank = null, supplierIban = null;
+  outerBank: for (let r = 0; r < grid.length; r++) {
+    const row = grid[r] || [];
+    for (let c = 0; c < row.length; c++) {
+      const t = norm(row[c]);
+      const m = t.match(/^iban[:\s]*([A-Z]{2}[0-9A-Z ]{8,})/i);
+      if (m) {
+        supplierIban = m[1].replace(/\s+(SAR|USD|EUR|AED)$/i, '').trim();
+        for (let c2 = 0; c2 < c; c2++) { const b = norm(row[c2]); if (b && /[A-Za-z]{3,}/.test(b)) { supplierBank = b; break; } }
+        break outerBank;
+      }
     }
   }
 
@@ -157,9 +198,10 @@ export function parseGrid(grid) {
   const grand = findLabelled(grid, [/total\s*grand\s*amount|grand\s*total/]);
   const wt = findLabelled(grid, [/gross\s*total\s*weight|total\s*weight/]);
 
-  let tQ = null, tT = null, tV = null, tG = null;
+  let tQ = null, tB = null, tT = null, tV = null, tG = null;
   if (totalsRow) {
     tQ = parseNum(totalsRow[cols.quantity]);
+    tB = parseNum(totalsRow[cols.boxPcs]);
     tT = parseNum(totalsRow[cols.taxable]);
     tV = parseNum(totalsRow[cols.vatAmt]);
     tG = parseNum(totalsRow[cols.amount]);
@@ -172,8 +214,16 @@ export function parseGrid(grid) {
     header: {
       pi_number: piNo ? piNo.value : null,
       pi_date: parseDate(dt ? dt.value : null),
+      document_type: documentType,
       supplier,
+      supplier_address: supplierAddress,
+      supplier_short_address: shortAddr ? shortAddr.value : null,
+      supplier_bank: supplierBank,
+      supplier_iban: supplierIban,
       customer: cust ? cust.value : null,
+      customer_vat: custVat ? custVat.value : null,
+      customer_cr: custCr ? custCr.value : null,
+      salesman: salesman ? salesman.value : null,
       currency,
       payment_terms: pay ? pay.value : null,
       delivery_terms: del ? del.value : null,
@@ -183,6 +233,7 @@ export function parseGrid(grid) {
     items,
     totals: {
       total_quantity: tQ,
+      total_boxes: tB,
       total_taxable: tT,
       total_vat: tV,
       grand_total: tG,

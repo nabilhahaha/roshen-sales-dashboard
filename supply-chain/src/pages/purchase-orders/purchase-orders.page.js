@@ -16,8 +16,17 @@ import { printOrder, exportOrderExcel } from '../../utils/documents.js';
 import { ORDER_STATUS } from '../../models/order-status.js';
 
 let SKUS = [], SKU_BY_CODE = {};
-const ED = { id: null, readonly: false, header: null, lines: [], pi: null };
+const ED = { id: null, readonly: false, header: null, lines: [], pi: null, doc: null };
 let ROOT = null, CTX = null;
+
+// Document line fields imported from the supplier PI Excel — carried through
+// edits so saving a Draft never loses what the document said.
+const DOC_LINE_FIELDS = ['line_no', 'supplier_item_code', 'uom', 'units_qty', 'unit_price', 'discount_percent', 'net_unit_price', 'taxable_amount', 'vat_percent', 'vat_amount', 'amount'];
+const lineFromDb = (it) => {
+  const l = { item_code: it.item_code, roshen_id: it.roshen_id, item_description: it.item_description, price_case: Number(it.price_case), ordered_cases: Number(it.ordered_cases) };
+  DOC_LINE_FIELDS.forEach((f) => { l[f] = it[f] ?? null; });
+  return l;
+};
 
 export async function render(root, ctx) {
   ROOT = root; CTX = ctx;
@@ -30,7 +39,7 @@ export async function render(root, ctx) {
 }
 
 function startNew() {
-  ED.id = null; ED.readonly = false; ED.pi = null;
+  ED.id = null; ED.readonly = false; ED.pi = null; ED.doc = null;
   ED.header = { order_number: '', order_date: today(), supplier: 'Roshen', warehouse: '', expected_arrival: '', notes: '', status: ORDER_STATUS.DRAFT };
   ED.lines = [];
   paint();
@@ -38,19 +47,18 @@ function startNew() {
 async function openOrder(id, mode) {
   mount(ROOT, loading());
   let data; try { data = await Orders.getOrder(id); } catch (e) { toast('Load failed: ' + e.message, 'err'); return; }
-  ED.id = data.id; ED.pi = one(data.proforma_invoices);
+  ED.id = data.id; ED.pi = one(data.proforma_invoices); ED.doc = data;
   ED.readonly = mode === 'view' || data.status !== ORDER_STATUS.DRAFT;
   ED.header = { order_number: data.order_number, order_date: data.order_date, supplier: data.supplier, warehouse: data.warehouse || '', expected_arrival: data.expected_arrival || '', notes: data.notes || '', status: data.status };
-  ED.lines = (data.supply_order_items || []).slice().sort((a, b) => a.id - b.id)
-    .map((it) => ({ item_code: it.item_code, roshen_id: it.roshen_id, item_description: it.item_description, price_case: Number(it.price_case), ordered_cases: Number(it.ordered_cases) }));
+  ED.lines = (data.supply_order_items || []).slice().sort((a, b) => (a.line_no || 0) - (b.line_no || 0) || a.id - b.id).map(lineFromDb);
   paint();
 }
 async function duplicateOrder(id) {
   mount(ROOT, loading());
   let data; try { data = await Orders.getOrder(id); } catch (e) { toast('Load failed: ' + e.message, 'err'); return; }
-  ED.id = null; ED.readonly = false; ED.pi = null;
+  ED.id = null; ED.readonly = false; ED.pi = null; ED.doc = null;
   ED.header = { order_number: '', order_date: today(), supplier: data.supplier, warehouse: data.warehouse || '', expected_arrival: '', notes: data.notes || '', status: ORDER_STATUS.DRAFT };
-  ED.lines = (data.supply_order_items || []).slice().sort((a, b) => a.id - b.id)
+  ED.lines = (data.supply_order_items || []).slice().sort((a, b) => (a.line_no || 0) - (b.line_no || 0) || a.id - b.id)
     .map((it) => ({ item_code: it.item_code, roshen_id: it.roshen_id, item_description: it.item_description, price_case: Number(it.price_case), ordered_cases: Number(it.ordered_cases) }));
   paint();
   toast('Duplicated — review and save as a new draft', 'info');
@@ -67,6 +75,40 @@ function paint() {
     banner = `<div class="sc-locked-banner">🔒 This PI is <b>&nbsp;${esc(h.status)}&nbsp;</b> and locked.</div>`;
   else if (ro)
     banner = `<div class="sc-locked-banner" style="background:rgba(143,163,189,.12);border-color:var(--border);color:var(--text-secondary)">👁 View mode <button class="sc-btn sm" style="margin-left:6px" data-act="unlock">✏️ Edit</button></div>`;
+
+  // Supplier document header — the PI as the business document reads
+  // (supplier / customer / document details / totals), present whenever this
+  // PI was imported from a supplier document.
+  let docCard = '';
+  const d = ED.doc;
+  if (d && (d.document_type || d.supplier_vat || d.customer_name || d.total_gross != null)) {
+    const cur = d.currency || 'SAR';
+    const kvd = (l, v) => (v == null || v === '' ? '' : `<div style="min-width:145px"><span class="erp-mini">${l}</span><br><b style="font-size:12.5px">${esc(String(v))}</b></div>`);
+    docCard = `<div class="sc-card">
+      <div class="sc-card-h"><h3>🧾 ${esc(d.document_type || 'Supplier Document')} ${esc(d.order_number || '')}</h3><div class="sc-spacer"></div>
+        ${d.source_filename ? `<span class="mono" style="font-size:11px;color:var(--text-muted)">${esc(d.source_filename)}</span>` : ''}</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px">
+        <div>
+          <div class="erp-mini" style="margin-bottom:6px">Supplier</div>
+          <div style="display:flex;gap:18px;flex-wrap:wrap">${kvd('Company', d.supplier)}${kvd('VAT No.', d.supplier_vat)}${kvd('CR Number', d.supplier_cr)}
+            ${kvd('Short Address', d.supplier_short_address)}${kvd('Bank', d.supplier_bank)}${kvd('IBAN', d.supplier_iban)}</div>
+          ${d.supplier_address ? `<div style="margin-top:6px;font-size:11.5px;color:var(--text-secondary)">${esc(d.supplier_address)}</div>` : ''}
+        </div>
+        <div>
+          <div class="erp-mini" style="margin-bottom:6px">Customer &amp; Document</div>
+          <div style="display:flex;gap:18px;flex-wrap:wrap">${kvd('Customer', d.customer_name)}${kvd('Customer VAT №', d.customer_vat)}${kvd('Customer CR', d.customer_cr)}
+            ${kvd('Document Date', d.order_date)}${kvd('Currency', d.currency)}${kvd('Salesman', d.salesman)}
+            ${kvd('Payment Terms', d.payment_terms)}${kvd('Delivery Terms', d.delivery_terms)}</div>
+        </div>
+      </div>
+      ${d.total_gross != null || d.total_net != null ? `<div style="display:flex;gap:22px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--border-light)">
+        ${kvd('Total Units', d.total_units == null ? null : qty(d.total_units))}
+        ${kvd('Total Net (' + cur + ')', d.total_net == null ? null : money(d.total_net))}
+        ${kvd('Total VAT (' + cur + ')', d.total_vat == null ? null : money(d.total_vat))}
+        ${kvd('Grand Total (' + cur + ')', d.total_gross == null ? null : money(d.total_gross))}
+        ${kvd('Gross Weight (kg)', d.gross_weight_kg == null ? null : qty(d.gross_weight_kg))}</div>` : ''}
+    </div>`;
+  }
 
   let piStrip = '';
   if (ED.pi) piStrip = `<div class="sc-card" style="padding:12px 16px"><div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;font-size:12.5px">
@@ -89,6 +131,7 @@ function paint() {
       ${field('Expected Arrival', `<input data-el="expected_arrival" type="date" class="sc-input" ${dis} value="${esc(h.expected_arrival || '')}">`)}
       ${field('Notes', `<input data-el="notes" class="sc-input" ${dis} placeholder="Optional" value="${esc(h.notes || '')}">`)}
     </div></div>
+    ${docCard}
     ${piStrip}
     <div data-el="receiving"></div>
     <div data-el="attachments"></div>
@@ -213,6 +256,34 @@ function renderLines() {
     box.innerHTML = `<div class="sc-empty"><div class="ic">📦</div><p>No items yet.${ro ? '' : ' Search above to add SKUs to this order.'}</p></div>`;
     updateSummary(); return;
   }
+  // Imported document lines are shown with the document's own columns.
+  const hasDoc = ED.lines.some((l) => l.units_qty != null || l.amount != null || l.uom);
+  if (ro && hasDoc) {
+    const cur = (ED.doc && ED.doc.currency) || 'SAR';
+    const hasDisc = ED.lines.some((l) => Number(l.discount_percent) > 0);
+    const cell = (v, f) => `<td class="num">${v == null ? '—' : f(v)}</td>`;
+    const rows = ED.lines.map((l, i) => `<tr>
+        <td>${l.line_no || i + 1}</td>
+        <td class="mono"><b>${esc(l.supplier_item_code || l.item_code || '')}</b>${l.supplier_item_code && l.item_code && l.supplier_item_code !== l.item_code ? `<div style="font-size:10px;color:var(--text-muted)">${esc(l.item_code)}</div>` : ''}</td>
+        <td class="mono">${esc(l.roshen_id || '—')}</td>
+        <td style="font-size:12px;min-width:220px">${esc(l.item_description || '')}</td>
+        <td>${esc(l.uom || '—')}</td>
+        ${cell(l.units_qty, qty)}
+        <td class="num"><b>${qty(l.ordered_cases)}</b></td>
+        ${cell(l.unit_price, money)}
+        ${hasDisc ? `<td class="num">${l.discount_percent == null ? '—' : esc(String(l.discount_percent)) + '%'}</td>${cell(l.net_unit_price, money)}` : ''}
+        ${cell(l.taxable_amount, money)}
+        <td class="num">${l.vat_percent == null ? '—' : esc(String(l.vat_percent))}</td>
+        ${cell(l.vat_amount, money)}
+        <td class="num"><b>${l.amount == null ? '—' : money(l.amount)}</b></td>
+      </tr>`).join('');
+    box.innerHTML = tableWrap(`<table class="sc-table"><thead><tr>
+      <th>No.</th><th>Item Code</th><th>Roshen Code</th><th>Item Description</th><th>Unit</th>
+      <th class="num">Units</th><th class="num">Ordered Qty</th><th class="num">Price (${esc(cur)})</th>
+      ${hasDisc ? `<th class="num">Discount %</th><th class="num">Price after Discount</th>` : ''}
+      <th class="num">Taxable (${esc(cur)})</th><th class="num">VAT %</th><th class="num">VAT (${esc(cur)})</th><th class="num">Amount (${esc(cur)})</th></tr></thead><tbody>${rows}</tbody></table>`);
+    updateSummary(); return;
+  }
   const rows = ED.lines.map((l, i) => {
     const lt = (Number(l.price_case) || 0) * (Number(l.ordered_cases) || 0);
     return `<tr>
@@ -237,9 +308,24 @@ function onQty(i, inp) {
 }
 
 function updateSummary() {
-  let cases = 0, total = 0;
-  ED.lines.forEach((l) => { cases += Number(l.ordered_cases) || 0; total += (Number(l.price_case) || 0) * (Number(l.ordered_cases) || 0); });
   const box = qs('[data-el="summary"]', ROOT); if (!box) return;
+  let cases = 0;
+  ED.lines.forEach((l) => { cases += Number(l.ordered_cases) || 0; });
+  const d = ED.doc;
+  // The document's own totals are the source of truth when this PI was
+  // imported from a supplier document; computed totals otherwise.
+  if (ED.readonly && d && (d.total_gross != null || d.total_net != null)) {
+    const cur = d.currency || 'SAR';
+    box.innerHTML = `
+      <div class="sc-sum-card"><div class="lbl">Number of Items</div><div class="val">${ED.lines.length}</div></div>
+      <div class="sc-sum-card"><div class="lbl">Total Ordered Qty</div><div class="val">${qty(cases)}</div></div>
+      ${d.total_net != null ? `<div class="sc-sum-card"><div class="lbl">Total Net (${esc(cur)})</div><div class="val">${money(d.total_net)}</div></div>` : ''}
+      ${d.total_vat != null ? `<div class="sc-sum-card"><div class="lbl">Total VAT (${esc(cur)})</div><div class="val">${money(d.total_vat)}</div></div>` : ''}
+      ${d.total_gross != null ? `<div class="sc-sum-card grand"><div class="lbl">Grand Total (${esc(cur)})</div><div class="val">${money(d.total_gross)}</div></div>` : ''}`;
+    return;
+  }
+  let total = 0;
+  ED.lines.forEach((l) => { total += (Number(l.price_case) || 0) * (Number(l.ordered_cases) || 0); });
   box.innerHTML = `
     <div class="sc-sum-card"><div class="lbl">Number of Items</div><div class="val">${ED.lines.length}</div></div>
     <div class="sc-sum-card"><div class="lbl">Total Cases</div><div class="val">${qty(cases)}</div></div>
@@ -288,10 +374,14 @@ async function save(thenApprove) {
     } else {
       await Orders.updateHeader(ED.id, header);
     }
-    await Orders.replaceItems(ED.id, ED.lines.map((l) => ({
-      item_code: l.item_code, roshen_id: l.roshen_id, item_description: l.item_description,
-      ordered_cases: Number(l.ordered_cases), price_case: Number(l.price_case),
-    })));
+    await Orders.replaceItems(ED.id, ED.lines.map((l) => {
+      const row = {
+        item_code: l.item_code, roshen_id: l.roshen_id, item_description: l.item_description,
+        ordered_cases: Number(l.ordered_cases), price_case: Number(l.price_case) || null,
+      };
+      DOC_LINE_FIELDS.forEach((f) => { if (l[f] != null) row[f] = l[f]; });
+      return row;
+    }));
   } catch (e) { toast('Save failed: ' + (e.message || e), 'err'); return; }
 
   if (thenApprove) confirmApprove();
