@@ -32,8 +32,12 @@ function dnSnapshot(dn) {
 }
 
 // Orders that have reached the phase where deliveries can arrive.
+// 'Approved' = the imported PI document approved on the Purchase Order screen
+// (the normal path since the PI became the real supplier document);
+// 'PI Approved' = the optional proforma-validation step confirmed it. Both
+// mean the same business fact: the PI is approved and deliveries may start.
 export const RECEIVABLE_STATUSES = [
-  'PI Approved', 'Ready for Shipment',
+  'Approved', 'PI Approved', 'Ready for Shipment',
   'Partially Delivered', 'Fully Delivered',
   'Partially Received', 'Fully Received', 'Invoice Matched',
 ];
