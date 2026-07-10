@@ -2,6 +2,7 @@
 // Pages are rendered into the shell's content area; each page receives a fresh
 // node and a ctx = { navigate, params, section, setNotif }.
 import { renderShell } from './components/layout/layout.js';
+import { attachGlobalSearch } from './components/search/global-search.js';
 import { isSection } from './models/navigation.js';
 
 import * as dashboard from './pages/dashboard/dashboard.page.js';
@@ -72,13 +73,15 @@ function navigate(section, params) {
 }
 
 function onSearch(q) {
-  if (currentCtx && typeof currentCtx.pageSearch === 'function') { currentCtx.pageSearch(q); return; }
-  if (q && q.trim()) navigate('sku-master', { q });
+  // the global-search dropdown handles cross-module results; typing also
+  // keeps filtering the current list when the page supports it
+  if (currentCtx && typeof currentCtx.pageSearch === 'function') currentCtx.pageSearch(q);
 }
 
 function boot() {
   const app = document.getElementById('app');
   shell = renderShell(app, { onNavigate: navigate, onSearch });
+  attachGlobalSearch(app.querySelector('.erp-topbar [data-el="search"]'), navigate);
   const initial = (location.hash || '').replace('#', '');
   navigate(isSection(initial) ? initial : 'purchase-orders');
 }

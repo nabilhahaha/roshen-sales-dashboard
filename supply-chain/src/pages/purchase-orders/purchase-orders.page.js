@@ -20,6 +20,8 @@ import { canCloseManually, CLOSE_REASONS } from '../../models/business-status.js
 import { renderOrdersList } from './orders-list.view.js';
 import { listRevisions } from '../../services/purchase-orders/revision.service.js';
 import { renderDocumentChain } from '../../components/related/document-chain.js';
+import { buildBusinessTimeline } from '../../services/timeline/business-timeline.service.js';
+import { exportOrderBusinessFile } from '../../services/export/business-export.service.js';
 
 let SKUS = [], SKU_BY_CODE = {};
 const ED = { id: null, readonly: false, header: null, lines: [], pi: null, doc: null };
@@ -183,6 +185,7 @@ function paint() {
     <div data-el="receiving"></div>
     <div data-el="attachments"></div>
     <div data-el="related"></div>
+    <div data-el="timeline"></div>
     <div data-el="audit"></div>
     <div class="sc-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center" data-el="actions"></div>`);
 
@@ -192,6 +195,7 @@ function paint() {
   if (!isNew && h.status !== ORDER_STATUS.DRAFT) renderReceivingProgress();
   if (!isNew) attachmentsPanel(qs('[data-el="attachments"]', ROOT), 'purchase_order', ED.id, { actor: 'Development' });
   if (!isNew) renderRelatedDocs();
+  if (!isNew) renderTimeline();
   if (!isNew) renderAuditTrail();
 }
 
@@ -286,6 +290,22 @@ async function renderRelatedDocs() {
   await renderDocumentChain(el, (s, p) => CTX.navigate(s, p), { orderId: ED.id, current: { type: 'purchase_order', id: ED.id } });
 }
 
+// Business Timeline — the complete document journey (PO created → approved →
+// DN created → shipment confirmed → receipt completed → invoice posted →
+// delivered → closed), each event with date, time and user. Read-only.
+async function renderTimeline() {
+  const el = qs('[data-el="timeline"]', ROOT);
+  if (!el || !ED.id) return;
+  let events = [];
+  try { events = await buildBusinessTimeline(ED.id); } catch (e) { return; }
+  if (!events.length) return;
+  el.innerHTML = `<div class="sc-card"><div class="sc-card-h"><h3>🧭 Business Timeline</h3><div class="sc-spacer"></div>
+      <span class="sc-badge none">${events.length}</span></div>
+    <div class="erp-rev-timeline">${events.map((e) => `<div class="erp-rev">
+      <div class="erp-rev-h"><b>${e.icon} ${esc(e.label)}</b>
+      <span style="margin-left:auto;font-size:11px;color:var(--text-muted)">${esc(e.user || '—')} · ${esc(String(e.at || '').slice(0, 16).replace('T', ' '))}</span></div></div>`).join('')}</div></div>`;
+}
+
 // Audit trail — the PI's lifecycle from the data it already carries:
 // created / approved timestamps + every applied revision. Read-only.
 async function renderAuditTrail() {
@@ -339,7 +359,8 @@ function renderActions() {
   if (ED.id) btns += `<div style="margin-left:auto;display:flex;gap:8px">
     <button class="sc-btn ghost" data-act="dup">⧉ Duplicate</button>
     <button class="sc-btn ghost" data-act="print">🖨 Print</button>
-    <button class="sc-btn ghost" data-act="xls">⬇ Excel</button></div>`;
+    <button class="sc-btn ghost" data-act="xls">⬇ Excel</button>
+    <button class="sc-btn" data-act="bizfile" title="Multi-sheet Excel: summary, items, DNs, invoices, receipts, timeline, audit">📊 Business File</button></div>`;
   box.innerHTML = btns;
 }
 
@@ -505,6 +526,10 @@ const ACTIONS = {
   removeLine: (d) => { ED.lines.splice(+d.id, 1); renderLines(); },
   print: () => { if (!printOrder(pseudoOrder())) toast('Allow pop-ups to print', 'err'); },
   xls: () => { exportOrderExcel(pseudoOrder()); toast('Exported', 'ok'); },
+  bizfile: async () => {
+    try { await exportOrderBusinessFile(ED.id); toast('Business file exported — 7 sheets', 'ok'); }
+    catch (e) { toast(e.message || String(e), 'err'); }
+  },
   goorder: (d) => CTX.navigate('purchase-orders', { orderId: +d.id, mode: 'view' }),
   close: async () => {
     let candidates = [];
