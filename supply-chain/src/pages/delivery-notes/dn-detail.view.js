@@ -2,7 +2,7 @@
 // per-line delivered / remaining / disputed vs the PO, batches with live shelf
 // life, the supplier-invoice match gate, goods-receipt creation, and the audit
 // trail. Pages talk only to services.
-import { mount, wire, qsa } from '../../utils/dom.js';
+import { mount, wire, qsa, delegate } from '../../utils/dom.js';
 import { esc, qty, today, normRoshen } from '../../utils/format.js';
 import { loading, emptyState, tableWrap, orderBadge } from '../../components/table/table.js';
 import { modal } from '../../components/modal/modal.js';
@@ -22,6 +22,8 @@ import { printDeliveryNote } from '../../utils/documents.js';
 import { attachmentsPanel } from '../../components/attachments/attachments-panel.js';
 import { renderDocumentChain } from '../../components/related/document-chain.js';
 import { exportDeliveryNoteExcel } from '../../services/export/business-export.service.js';
+import { renderDocumentShell, openDrawer, closeDrawer } from '../../components/document/document-shell.js';
+import { renderDocumentsTab, renderTimelineTab, openBusinessFile } from '../../components/document/document-extras.js';
 
 const ACTOR = 'Development';
 
@@ -151,20 +153,8 @@ export async function renderDnDetail(root, ctx, dnId) {
       ${a.action === 'edited' && a.detail ? editDiff(a.detail) : ''}</div>`).join('')}</div>`
       : '<p style="font-size:12px;color:var(--text-muted);margin:0">No actions recorded yet.</p>'}</div>`;
 
-  const actionBtns = [
-    '<button class="sc-btn sm ghost" data-act="print">🖨 Print DN</button>',
-    '<button class="sc-btn sm ghost" data-act="xls">⬇ Excel</button>',
-    editable ? '<button class="sc-btn sm ghost" data-act="edit">✏️ Edit</button>' : '',
-    editable ? '<button class="sc-btn sm ghost" data-act="cancel">✖ Cancel</button>' : '',
-    reversible ? '<button class="sc-btn sm ghost" data-act="reverse">↩ Reverse</button>' : '',
-  ].filter(Boolean).join('');
-
-  mount(root, `
-    <div class="sc-card-h"><h3>🚚 ${esc(dn.dn_number)}</h3><div class="sc-spacer"></div>
-      ${statusBadge(dn.status)}<span style="margin-left:8px">${actionBtns}</span>
-      <button class="sc-btn sm ghost" style="margin-left:10px" data-act="back">← Delivery Notes</button></div>
-    ${anyDisputed ? `<div class="sc-card" style="border-left:3px solid #F76707"><b>⚖ Over-delivery under dispute</b>
-      <p style="font-size:12px;color:var(--text-secondary);margin:6px 0 0">This delivery exceeds the PI quantity by <b>${qty(ful.summary.disputed)}</b> case(s). The excess is marked as disputed and can never be received.</p></div>` : ''}
+  // header card + doc meta (Overview tab)
+  const headerCard = `
     <div class="sc-card"><div class="sc-form-grid">
       <div class="sc-field"><label>PI</label><input class="sc-input" readonly value="${esc((dn.order && dn.order.order_number) || '')}"></div>
       <div class="sc-field"><label>PI Reference (on document)</label><input class="sc-input" readonly value="${esc(dn.po_reference || '—')}"></div>
@@ -181,20 +171,63 @@ export async function renderDnDetail(root, ctx, dnId) {
       ${dn.customer_vat ? `<span>Customer VAT: <b class="mono">${esc(dn.customer_vat)}</b></span>` : ''}
       ${dn.supplier_bank ? `<span>Bank: <b>${esc(dn.supplier_bank)}</b>${dn.supplier_iban ? ` · <span class="mono">${esc(dn.supplier_iban)}</span>` : ''}</span>` : ''}
       ${dn.received_by ? `<span>Received by: <b>${esc(dn.received_by)}</b></span>` : ''}
-    </div>` : ''}</div>
-    <div class="erp-grid-2">${invoiceCard}${grCard}</div>
-    <div class="sc-card"><div class="sc-card-h"><h3>📦 Lines &amp; Batches</h3><div class="sc-spacer"></div>
-      <span style="font-size:11px;color:var(--text-muted)">delivered · remaining · disputed vs the PI · shelf life is live</span></div>
-      <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Batch / Lot · Item</th><th>Expiry</th><th class="num">Delivered</th><th class="num">Remaining</th><th class="num">Disputed / Shelf</th><th>QC</th></tr></thead><tbody>${lineRows}</tbody></table></div></div>
-    ${validationCard}
-    <div data-el="dn-attachments"></div>
-    <div data-el="dn-chain"></div>
-    ${auditCard}`);
-  attachmentsPanel(root.querySelector('[data-el="dn-attachments"]'), 'delivery_note', dn.id, { actor: ACTOR });
-  renderDocumentChain(root.querySelector('[data-el="dn-chain"]'), (s, p) => ctx.navigate(s, p),
-    { orderId: dn.order_id, current: { type: 'delivery_note', id: dn.id } });
+    </div>` : ''}</div>`;
+  const disputeBanner = anyDisputed ? `<div class="sc-card" style="border-left:3px solid #F76707"><b>⚖ Over-delivery under dispute</b>
+      <p style="font-size:12px;color:var(--text-secondary);margin:6px 0 0">This delivery exceeds the PI quantity by <b>${qty(ful.summary.disputed)}</b> case(s). The excess is marked as disputed and can never be received.</p></div>` : '';
 
-  wire(root, {
+  const inTransitNow = dn.status === 'In Transit';
+  const shell = renderDocumentShell(root, {
+    icon: '🚚', title: dn.dn_number,
+    badges: statusBadge(dn.status),
+    headRight: '<button class="sc-btn sm ghost" data-act="back">← Delivery Notes</button>',
+    meta: [
+      { label: 'PI', value: (dn.order && dn.order.order_number) || dn.po_reference || '—' },
+      { label: 'Supplier', value: dn.supplier || '—' },
+      { label: 'DN Date', value: dn.dn_date || '—' },
+      { label: 'Total Cartons', value: qty(dn.total_cartons || 0) },
+      { label: 'Invoice', value: inv ? `${inv.invoice_number} · ${inv.status}` : 'none yet' },
+      { label: 'Last Update', value: String(dn.updated_at || '').slice(0, 16).replace('T', ' ') || '—' },
+    ],
+    banner: disputeBanner,
+    activeTab: (ctx.params && ctx.params.tab),
+    tabs: [
+      { id: 'overview', label: 'Overview', icon: '📋', render: (el) => { el.innerHTML = `<div class="erp-grid-2">${invoiceCard}${grCard}</div>` + headerCard; } },
+      { id: 'items', label: 'Items', icon: '📦', count: dn.items.length, render: (el) => {
+          el.innerHTML = `<div class="sc-card"><div class="sc-card-h"><h3>📦 Lines &amp; Batches</h3><div class="sc-spacer"></div>
+            <span style="font-size:11px;color:var(--text-muted)">delivered · remaining · disputed vs the PI · shelf life is live</span></div>
+            <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Batch / Lot · Item</th><th>Expiry</th><th class="num">Delivered</th><th class="num">Remaining</th><th class="num">Disputed / Shelf</th><th>QC</th></tr></thead><tbody>${lineRows}</tbody></table></div></div>` + validationCard;
+        } },
+      { id: 'documents', label: 'Documents', icon: '📎', render: (el) => renderDocumentsTab(el, { docType: 'delivery_note', docId: dn.id, orderId: dn.order_id, actor: ACTOR }) },
+      { id: 'timeline', label: 'Timeline', icon: '🧭', render: (el) => renderTimelineTab(el, dn.order_id, auditCard) },
+    ],
+    actions: [
+      !inv && editable ? { act: 'upload', label: '📄 Upload Invoice', primary: true } : null,
+      invMatched && !gr ? { act: 'creategr', label: '✅ Confirm Arrival', primary: true } : null,
+      invMatched && !gr ? { act: 'dispatch', label: inTransitNow ? '🕓 Update ETA' : '🚚 Dispatch' } : null,
+      gr ? { act: 'opengr', label: '📦 Open Receipt' } : null,
+      inv && !invMatched ? { act: 'rematch', label: '🔗 Re-check Match' } : null,
+      { act: 'xls', label: '📊 Export Excel' },
+      { act: 'bizview', label: '📁 Business File' },
+      { act: 'print', label: '🖨 Print' },
+      { act: 'related', label: '🔗 Related Documents' },
+      editable ? { act: 'edit', label: '✏️ Edit' } : null,
+      editable ? { act: 'cancel', label: '✖ Cancel DN', danger: true } : null,
+      reversible ? { act: 'reverse', label: '↩ Reverse', danger: true } : null,
+      { act: 'refresh', label: '↻ Refresh' },
+    ],
+    onAction: (act) => {
+      if (act === 'bizview') return openBusinessFile(dn.order_id, (s2, p2) => ctx.navigate(s2, p2));
+      if (act === 'related') {
+        const body = openDrawer('🔗 Related Documents — ' + dn.dn_number, '');
+        return renderDocumentChain(body, (s2, p2) => { closeDrawer(); ctx.navigate(s2, p2); }, { orderId: dn.order_id, current: { type: 'delivery_note', id: dn.id } });
+      }
+      if (act === 'refresh') return renderDnDetail(root, ctx, dnId);
+      const fn = HANDLERS[act]; if (fn) fn({});
+    },
+  });
+
+  const HANDLERS = {
+
     back: () => ctx.navigate('delivery-notes'),
     print: () => { if (!printDeliveryNote(dn)) toast('Allow pop-ups to print', 'err'); },
     xls: async () => { try { await exportDeliveryNoteExcel(dn.id); toast('Delivery note exported', 'ok'); } catch (e) { toast(e.message || String(e), 'err'); } },
@@ -233,7 +266,7 @@ export async function renderDnDetail(root, ctx, dnId) {
       }
       catch (e) { toast(e.message || String(e), 'err'); }
     },
-    opengr: ({ id }) => ctx.navigate('goods-receiving', { view: 'detail', grId: id }),
+    opengr: ({ id }) => ctx.navigate('goods-receiving', { view: 'detail', grId: id || (gr && gr.id) }),
     openpi: () => ctx.navigate('purchase-orders', { orderId: dn.order_id, mode: 'view' }),
     openinv: ({ id }) => ctx.navigate('supplier-invoices', { view: 'detail', invoiceId: id }),
     dispatch: () => {
@@ -252,7 +285,8 @@ export async function renderDnDetail(root, ctx, dnId) {
         { label: 'Back', cls: 'ghost' },
       ]);
     },
-  });
+  };
+  delegate(root, HANDLERS);
 }
 
 const ACTION = { created: '➕ Created', edited: '✏️ Edited', cancelled: '✖ Cancelled', reversed: '↩ Reversed', received: '📦 Received', status_change: '↔ Status changed' };

@@ -12,6 +12,8 @@ import { orderBadge } from '../../components/table/table.js';
 import { siBusinessStatus } from '../../models/business-status.js';
 import { renderDocumentChain } from '../../components/related/document-chain.js';
 import { exportSupplierInvoicesExcel } from '../../services/export/business-export.service.js';
+import { renderDocumentShell, openDrawer, closeDrawer } from '../../components/document/document-shell.js';
+import { renderDocumentsTab, renderTimelineTab, openBusinessFile } from '../../components/document/document-extras.js';
 import { modal } from '../../components/modal/modal.js';
 import { toast } from '../../components/notifications/toast.js';
 import { printSupplierInvoice } from '../../utils/documents.js';
@@ -133,17 +135,6 @@ async function renderInvoiceDetail(root, ctx, invoiceId) {
       : '<p style="font-size:12px;color:var(--text-muted);margin:0">No actions recorded yet.</p>'}</div>`;
 
   const isPending = inv.status === 'Pending Matching';
-  const actionBtns = [
-    '<button class="sc-btn sm ghost" data-act="print">🖨 Print</button>',
-    isPending ? '<button class="sc-btn sm ghost" data-act="linknow">🔗 Check for matching documents</button>' : '',
-    (!isNote && !isPending && inv.delivery_note_id) ? '<button class="sc-btn sm ghost" data-act="rematch">🔗 Re-check match</button>' : '',
-    (!isNote && sm.hardVariances > 0 && cancellable) ? '<button class="sc-btn sm ghost" data-act="dispute">⚖ Raise disputes</button>' : '',
-    editable ? '<button class="sc-btn sm ghost" data-act="edit">✏️ Edit</button>' : '',
-    !isNote && cancellable ? '<button class="sc-btn sm ghost" data-act="credit">➖ Credit Note</button>' : '',
-    !isNote && cancellable ? '<button class="sc-btn sm ghost" data-act="debit">➕ Debit Note</button>' : '',
-    inv.document_path ? '<button class="sc-btn sm ghost" data-act="viewdoc">📎 Original PDF</button>' : '',
-    cancellable ? '<button class="sc-btn sm ghost" data-act="cancel">✖ Cancel</button>' : '',
-  ].filter(Boolean).join('');
 
   const matchBanner = isPending
     ? `<div class="sc-card" style="border-left:3px solid #F2C037"><b>⏳ Pending Matching</b>
@@ -159,11 +150,7 @@ async function renderInvoiceDetail(root, ctx, invoiceId) {
             <p style="font-size:12px;color:var(--text-secondary);margin:6px 0 0">This invoice bills part of the delivery. ${sm.missing || 0} delivered line(s) remain open to invoice; no variances found.</p></div>`
         : ''));
 
-  mount(root, `
-    <div class="sc-card-h"><h3>🧾 ${esc(inv.invoice_number)} ${docChip(inv.doc_type)}</h3><div class="sc-spacer"></div>
-      ${statusBadge(siBusinessStatus(inv.status, inv.delivery_note && inv.delivery_note.status))}<span style="margin-left:8px">${actionBtns}</span>
-      <button class="sc-btn sm ghost" style="margin-left:10px" data-act="back">← Invoices</button></div>
-    <div class="sc-card"><div class="sc-form-grid">
+  const headerCard = `<div class="sc-card"><div class="sc-form-grid">
       <div class="sc-field"><label>PI</label><input class="sc-input" readonly value="${esc((inv.order && inv.order.order_number) || '—')}"></div>
       <div class="sc-field"><label>Delivery Note</label><input class="sc-input" readonly value="${esc((inv.delivery_note && inv.delivery_note.dn_number) || inv.dn_reference || '—')}"></div>
       <div class="sc-field"><label>Invoice Date</label><input class="sc-input" readonly value="${esc(inv.invoice_date || '—')}"></div>
@@ -177,22 +164,59 @@ async function renderInvoiceDetail(root, ctx, invoiceId) {
       <div class="sc-field"><label>Seller CR</label><input class="sc-input" readonly value="${esc(z.seller_cr || inv.seller_cr || '—')}"></div>
       <div class="sc-field"><label>Buyer VAT (ZATCA)</label><input class="sc-input" readonly value="${esc(z.buyer_vat || inv.buyer_vat || '—')}"></div>
     </div>
-    ${inv.doc_notes ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-top:8px">Document notes: <i>${esc(inv.doc_notes)}</i></div>` : ''}</div>
-    ${matchBanner}
-    <div class="sc-card"><div class="sc-card-h"><h3>📦 Invoice Lines vs Delivery</h3><div class="sc-spacer"></div>
-      <span style="font-size:11px;color:var(--text-muted)">billed vs delivered, at PI prices</span></div>
-      <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Roshen / Code</th><th>Description</th><th class="num">Invoiced</th><th class="num">Expected</th><th class="num">Price/Case</th><th class="num">Taxable</th><th class="num">VAT</th><th>Match</th></tr></thead><tbody>${lineRows}</tbody></table></div></div>
-    ${disputeCard}
-    <div data-el="si-attachments"></div>
-    <div data-el="si-chain"></div>
-    ${auditCard}`);
-  attachmentsPanel(root.querySelector('[data-el="si-attachments"]'), 'supplier_invoice', inv.id, { actor: ACTOR });
-  if (inv.order_id) {
-    renderDocumentChain(root.querySelector('[data-el="si-chain"]'), (s, p) => ctx.navigate(s, p),
-      { orderId: inv.order_id, current: { type: 'supplier_invoice', id: inv.id } });
-  }
+    ${inv.doc_notes ? `<div style="font-size:11.5px;color:var(--text-secondary);margin-top:8px">Document notes: <i>${esc(inv.doc_notes)}</i></div>` : ''}</div>`;
 
-  wire(root, {
+  const shell = renderDocumentShell(root, {
+    icon: '🧾', title: inv.invoice_number,
+    badges: statusBadge(siBusinessStatus(inv.status, inv.delivery_note && inv.delivery_note.status)) + ' ' + docChip(inv.doc_type),
+    headRight: '<button class="sc-btn sm ghost" data-act="back">← Invoices</button>',
+    meta: [
+      { label: 'Supplier', value: inv.supplier || '—' },
+      { label: 'Invoice Date', value: inv.invoice_date || '—' },
+      { label: 'Total Amount', value: money(inv.grand_total) + ' ' + (inv.currency || 'SAR') },
+      { label: 'PI', value: (inv.order && inv.order.order_number) || '—' },
+      { label: 'Delivery Note', value: (inv.delivery_note && inv.delivery_note.dn_number) || inv.dn_reference || '—' },
+      { label: 'Last Update', value: String(inv.updated_at || '').slice(0, 16).replace('T', ' ') || '—' },
+    ],
+    banner: matchBanner,
+    activeTab: (ctx.params && ctx.params.tab),
+    tabs: [
+      { id: 'overview', label: 'Overview', icon: '📋', render: (el) => { el.innerHTML = headerCard; } },
+      { id: 'items', label: 'Items', icon: '📦', count: (inv.items || []).length, render: (el) => {
+          el.innerHTML = `<div class="sc-card"><div class="sc-card-h"><h3>📦 Invoice Lines vs Delivery</h3><div class="sc-spacer"></div>
+            <span style="font-size:11px;color:var(--text-muted)">billed vs delivered, at PI prices</span></div>
+            <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Roshen / Code</th><th>Description</th><th class="num">Invoiced</th><th class="num">Expected</th><th class="num">Price/Case</th><th class="num">Taxable</th><th class="num">VAT</th><th>Match</th></tr></thead><tbody>${lineRows}</tbody></table></div></div>` + disputeCard;
+        } },
+      { id: 'documents', label: 'Documents', icon: '📎', render: (el) => renderDocumentsTab(el, { docType: 'supplier_invoice', docId: inv.id, orderId: inv.order_id, actor: ACTOR }) },
+      { id: 'timeline', label: 'Timeline', icon: '🧭', render: (el) => (inv.order_id ? renderTimelineTab(el, inv.order_id, auditCard) : (el.innerHTML = auditCard)) },
+    ],
+    actions: [
+      isPending ? { act: 'linknow', label: '🔗 Check Matching Docs', primary: true } : null,
+      (!isNote && !isPending && inv.delivery_note_id) ? { act: 'rematch', label: '🔗 Re-check Match' } : null,
+      (!isNote && sm.hardVariances > 0 && cancellable) ? { act: 'dispute', label: '⚖ Raise Disputes' } : null,
+      { act: 'print', label: '🖨 Print' },
+      inv.order_id ? { act: 'bizview', label: '📁 Business File' } : null,
+      inv.order_id ? { act: 'related', label: '🔗 Related Documents' } : null,
+      inv.document_path ? { act: 'viewdoc', label: '📎 Original PDF' } : null,
+      editable ? { act: 'edit', label: '✏️ Edit' } : null,
+      !isNote && cancellable ? { act: 'credit', label: '➖ Credit Note' } : null,
+      !isNote && cancellable ? { act: 'debit', label: '➕ Debit Note' } : null,
+      cancellable ? { act: 'cancel', label: '✖ Cancel', danger: true } : null,
+      { act: 'refresh', label: '↻ Refresh' },
+    ],
+    onAction: (act) => {
+      if (act === 'bizview') return openBusinessFile(inv.order_id, (s2, p2) => ctx.navigate(s2, p2));
+      if (act === 'related') {
+        const body = openDrawer('🔗 Related Documents — ' + inv.invoice_number, '');
+        return renderDocumentChain(body, (s2, p2) => { closeDrawer(); ctx.navigate(s2, p2); }, { orderId: inv.order_id, current: { type: 'supplier_invoice', id: inv.id } });
+      }
+      if (act === 'refresh') return renderInvoiceDetail(root, ctx, invoiceId);
+      const fn = HANDLERS[act]; if (fn) fn({});
+    },
+  });
+
+  const HANDLERS = {
+
     back: () => ctx.navigate('supplier-invoices'),
     openpo: () => ctx.navigate('purchase-orders', { orderId: inv.order_id, mode: 'view' }),
     opendn: () => ctx.navigate('delivery-notes', { view: 'detail', dnId: inv.delivery_note_id }),
@@ -230,7 +254,8 @@ async function renderInvoiceDetail(root, ctx, invoiceId) {
         window.open(url, '_blank'); setTimeout(() => URL.revokeObjectURL(url), 60000);
       } catch (e) { toast(e.message || String(e), 'err'); }
     },
-  });
+  };
+  delegate(root, HANDLERS);
 }
 
 // ---- helpers / modals ----------------------------------------------

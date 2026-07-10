@@ -22,6 +22,10 @@ export const ACCEPTED = {
   png:  'image/png',
   heic: 'image/heic',
   webp: 'image/webp',
+  doc:  'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  eml:  'message/rfc822',
+  msg:  'application/vnd.ms-outlook',
 };
 export const ACCEPT_ATTR = Object.keys(ACCEPTED).map((e) => '.' + e).join(',');
 const MAX_BYTES = 25 * 1024 * 1024; // 25 MB per file
@@ -30,14 +34,21 @@ const extOf = (name) => String(name || '').split('.').pop().toLowerCase();
 export const isAccepted = (name) => !!ACCEPTED[extOf(name)];
 export const kindOf = (nameOrMime) => {
   const s = String(nameOrMime || '').toLowerCase();
+  const e = extOf(s);
   if (s.includes('pdf')) return 'pdf';
-  if (s.includes('image') || ['jpg', 'jpeg', 'png', 'heic', 'webp'].includes(extOf(s))) return 'image';
+  if (s.includes('image') || ['jpg', 'jpeg', 'png', 'heic', 'webp'].includes(e)) return 'image';
+  if (['doc', 'docx'].includes(e) || s.includes('msword') || s.includes('wordprocessingml')) return 'word';
+  if (['eml', 'msg'].includes(e) || s.includes('rfc822') || s.includes('ms-outlook')) return 'email';
   return 'sheet';
 };
-// preview in the browser is possible for pdf + most images (heic downloads)
+// in-app preview: pdf, most images, Excel (parsed grid), plain-text emails
 export const canPreview = (att) => {
   const k = kindOf(att.mime || att.filename);
-  return k === 'pdf' || (k === 'image' && extOf(att.filename) !== 'heic');
+  const e = extOf(att.filename);
+  if (k === 'pdf' || k === 'sheet') return e !== 'csv' ? true : true;
+  if (k === 'image') return e !== 'heic';
+  if (k === 'email') return e === 'eml';
+  return false;   // word/msg: download only
 };
 
 // Attach the ORIGINAL uploaded document to the record it created — called by

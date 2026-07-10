@@ -27,7 +27,8 @@ import {
   listGoodsReceipts, getGoodsReceipt, setBatchQc, releaseGoodsReceipt, recordShelfLifeException,
 } from '../../services/goods-receiving/goods-receiving.service.js';
 import { renderDocumentChain } from '../../components/related/document-chain.js';
-import { listChainAttachments, attachmentUrl, kindOf } from '../../services/attachments/attachments.service.js';
+import { renderDocumentShell, openDrawer, closeDrawer } from '../../components/document/document-shell.js';
+import { renderDocumentsTab, renderTimelineTab, openBusinessFile } from '../../components/document/document-extras.js';
 import { priceIndex } from '../../services/fulfillment/fulfillment.service.js';
 import { listSkus, indexByRoshen, indexByCode } from '../../services/sku/sku.service.js';
 
@@ -88,11 +89,55 @@ async function renderDetail(root, ctx, grId) {
   });
   let FULL_DELIVERY = true;   // Received = Delivered for every line (default)
 
-  if (done) return paintDone();
-  paint();
+  // V2 shell: the receiving flow (unchanged) lives in its own tab; documents
+  // and the timeline get tabs of their own. HOST is where paint()/paintDone()
+  // mount so every existing interaction keeps working verbatim.
+  let HOST = null;
+  renderDocumentShell(root, {
+    icon: '🏬', title: gr.grn_number || 'Warehouse Receipt',
+    badges: statusBadge(gr.status),
+    headRight: '<button class="sc-btn sm ghost" data-qact="back">← Warehouse Receiving</button>',
+    meta: [
+      { label: 'PI', value: (gr.order && gr.order.order_number) || '—' },
+      { label: 'Delivery Note', value: (gr.delivery_note && gr.delivery_note.dn_number) || '—' },
+      { label: 'Warehouse', value: gr.warehouse || '—' },
+      { label: 'Receipt Date', value: gr.receipt_date || '—' },
+      { label: 'Batches', value: String(gr.batches.length) },
+      { label: 'Last Update', value: String(gr.released_at || gr.receipt_date || '').slice(0, 16).replace('T', ' ') || '—' },
+    ],
+    activeTab: (ctx.params && ctx.params.tab),
+    tabs: [
+      { id: 'receiving', label: done ? 'Receipt' : 'Receiving', icon: '📦', count: gr.batches.length,
+        render: (el) => { HOST = el; done ? paintDone() : paint(); } },
+      { id: 'documents', label: 'Documents', icon: '📎', render: (el) => renderDocumentsTab(el, { orderId: gr.order_id, actor: 'goods-receiving' }) },
+      { id: 'timeline', label: 'Timeline', icon: '🧭', render: (el) => renderTimelineTab(el, gr.order_id) },
+    ],
+    actions: [
+      { act: 'opendn', label: '🚚 Open Delivery Note' },
+      { act: 'openpo', label: '📄 Open PI' },
+      { act: 'bizview', label: '📁 Business File' },
+      { act: 'related', label: '🔗 Related Documents' },
+      { act: 'refresh', label: '↻ Refresh' },
+    ],
+    onAction: (act) => {
+      if (act === 'back') return ctx.navigate('goods-receiving');
+      if (act === 'opendn') return gr.delivery_note_id && ctx.navigate('delivery-notes', { view: 'detail', dnId: gr.delivery_note_id });
+      if (act === 'openpo') return gr.order_id && ctx.navigate('purchase-orders', { orderId: gr.order_id, mode: 'view' });
+      if (act === 'bizview') return openBusinessFile(gr.order_id, (s2, p2) => ctx.navigate(s2, p2));
+      if (act === 'related') {
+        const body = openDrawer('🔗 Related Documents — ' + (gr.grn_number || 'receipt'), '');
+        return renderDocumentChain(body, (s2, p2) => { closeDrawer(); ctx.navigate(s2, p2); }, { orderId: gr.order_id, current: { type: 'goods_receipt', id: gr.id } });
+      }
+      if (act === 'refresh') return renderDetail(root, ctx, grId);
+    },
+  });
+  // NOTE: execution must fall through to the declarations below — `saving`
+  // and the helpers belong to this scope; the shell's quick-action wiring
+  // (data-qact) already covers the header back button.
 
   // ================= completed receipt (read-only) =================
   function paintDone() {
+    const root = HOST;   // the receiving tab body — all selectors stay scoped
     const rows = gr.batches.map((b) => `<tr>
       <td class="mono"><b>${esc(b.roshen_id || b.item_code)}</b><div style="font-size:11px;color:var(--text-muted)">${esc(b.description || '')}</div></td>
       <td class="mono">${esc(b.batch_no || '—')}</td><td>${esc(b.expiry_date || '—')}</td>
@@ -103,43 +148,8 @@ async function renderDetail(root, ctx, grId) {
         ${statusBadge(gr.status)}<button class="sc-btn sm ghost" style="margin-left:10px" data-act="back">← Warehouse Receiving</button></div>
       <div class="sc-card"><span class="sc-badge confirmed">Receipt ${esc(gr.status)}</span> — accepted items are in the warehouse; the PI totals are updated.</div>
       <div class="sc-card">${tableWrap(`<table class="sc-table"><thead><tr><th>Item</th><th>Batch</th><th>Expiry</th><th class="num">Delivered</th><th class="num">Received</th><th>Decision</th></tr></thead><tbody>${rows}</tbody></table>`)}</div>
-      <div data-el="gr-atts"></div>
-      <div data-el="gr-chain"></div>`);
+      `);
     wire(root, { back: () => ctx.navigate('goods-receiving') });
-    renderChainExtras();
-  }
-
-  // Related Documents (the permanent chain) + the chain's original files —
-  // the receipt is a system document, so its Attachments panel REFERENCES the
-  // originals uploaded on the PO / DN / invoice (same records, never copies).
-  function renderChainExtras() {
-    const chainEl = qs('[data-el="gr-chain"]', root);
-    if (chainEl) {
-      renderDocumentChain(chainEl, (s, p) => ctx.navigate(s, p),
-        { orderId: gr.order_id, current: { type: 'goods_receipt', id: gr.id } });
-    }
-    const attEl = qs('[data-el="gr-atts"]', root);
-    if (attEl && gr.order_id) {
-      listChainAttachments(gr.order_id).then((atts) => {
-        if (!atts.length) return;
-        attEl.innerHTML = `<div class="sc-card"><div class="sc-card-h"><h3>📎 Attachments — original documents</h3>
-          <span class="sc-badge none" style="margin-left:8px">${atts.length}</span><div class="sc-spacer"></div>
-          <span style="font-size:11px;color:var(--text-muted)">the chain's uploaded originals — same files, referenced (never duplicated)</span></div>
-          <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Document</th><th>File</th><th>Uploaded</th><th>By</th><th></th></tr></thead><tbody>
-          ${atts.map((a) => `<tr><td style="font-size:12px">${esc(a.doc_label)}</td>
-            <td>${{ pdf: '📄', image: '🖼', sheet: '📊' }[kindOf(a.mime || a.filename)] || '📎'} <b style="font-size:12px">${esc(a.filename)}</b>${a.revision > 1 ? ` <span class="sc-badge approved">rev ${a.revision}</span>` : ''}</td>
-            <td style="font-size:11.5px">${esc(String(a.created_at || '').slice(0, 16).replace('T', ' '))}</td>
-            <td style="font-size:11.5px">${esc(a.uploaded_by || '—')}</td>
-            <td style="text-align:right;white-space:nowrap">
-              <button class="sc-btn sm ghost" data-att-view="${esc(a.storage_path)}">👁 View</button>
-              <button class="sc-btn sm ghost" data-att-dl="${esc(a.storage_path)}" data-name="${esc(a.filename)}">⬇ Download</button></td></tr>`).join('')}
-          </tbody></table></div></div>`;
-        attEl.querySelectorAll('[data-att-view]').forEach((b) => b.addEventListener('click', () =>
-          window.open(attachmentUrl({ storage_path: b.dataset.attView }), '_blank')));
-        attEl.querySelectorAll('[data-att-dl]').forEach((b) => b.addEventListener('click', () =>
-          window.open(attachmentUrl({ storage_path: b.dataset.attDl }) + '?download=' + encodeURIComponent(b.dataset.name), '_blank')));
-      }).catch(() => {});
-    }
   }
 
   // ================= active receiving =================
@@ -157,6 +167,7 @@ async function renderDetail(root, ctx, grId) {
   }
 
   function paint() {
+    const root = HOST;   // the receiving tab body — all selectors stay scoped
     const s = summary();
     const excRows = ROWS.filter((r) => r.belowMin);
     const healthy = ROWS.filter((r) => !r.belowMin);
@@ -245,10 +256,7 @@ async function renderDetail(root, ctx, grId) {
                : needApproval
                  ? '⚡ Enter the exception reason and approver above — the receipt then posts automatically.'
                  : 'Posting the warehouse receipt…'}</span>`}
-      </div>
-      <div data-el="gr-atts"></div>
-      <div data-el="gr-chain"></div>`);
-    renderChainExtras();
+      </div>`);
 
     // ---- interactions (state only — no service calls until confirm) ----
     const keepApproval = () => {
@@ -287,6 +295,7 @@ async function renderDetail(root, ctx, grId) {
   // ---- automatic completion: fires only from user actions above (a decision
   // click or an approval-field change) — never on merely opening the screen ----
   function maybeAutoConfirm() {
+    const root = HOST;
     if (saving) return;
     if (summary().unresolved > 0) return;                 // exceptions still awaiting a decision
     const excAccepted = ROWS.some((r) => r.belowMin && r.decision === 'accept-exception');
@@ -301,6 +310,7 @@ async function renderDetail(root, ctx, grId) {
   // ---- confirm: identical service flow as before (UI is the only change) ----
   let saving = false;
   async function confirmReceipt() {
+    const root = HOST;
     if (saving) return;
     const s = summary();
     if (s.unresolved) return toast('Resolve every exception first', 'err');
