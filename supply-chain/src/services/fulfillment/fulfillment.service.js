@@ -4,7 +4,7 @@
 import { getClient } from '../supabase/client.js';
 import { lineKey as keyOf } from '../../utils/format.js';
 import {
-  DN_SHIPPED_STATUSES, DN_DELIVERED_STATUSES, orderBusinessStatus, lineBusinessStatus,
+  DN_DELIVERED_STATUSES, dnShipsQuantity, orderBusinessStatus, lineBusinessStatus,
 } from '../../models/business-status.js';
 
 export async function getFulfillment(orderId) {
@@ -247,14 +247,15 @@ export async function openOrdersOverview() {
       .in('order_id', ids).neq('status', 'Cancelled'),
   ]);
 
-  // shipped cases per order + per PO line (confirmed DNs only)
-  const CONFIRMED = [...DN_SHIPPED_STATUSES, ...DN_DELIVERED_STATUSES];
+  // shipped cases per order + per PO line — every delivery-note DOCUMENT ships
+  // its quantity (dnShipsQuantity, the single business rule); only cancelled /
+  // reversed notes are excluded
   const shippedByLine = {}, dnsByOrder = {}, lastAct = {};
   (dns || []).forEach((d) => {
     (dnsByOrder[d.order_id] = dnsByOrder[d.order_id] || []).push(d);
     const t = d.updated_at || d.dn_date;
     if (t && (!lastAct[d.order_id] || t > lastAct[d.order_id])) lastAct[d.order_id] = t;
-    if (!CONFIRMED.includes(d.status)) return;
+    if (!dnShipsQuantity(d.status)) return;
     (d.delivery_note_items || []).forEach((it) => {
       const cases = (it.delivery_note_batches || []).reduce((a, b) => a + Number(b.cases || 0), 0);
       const k = d.order_id + '|' + keyOf(it.roshen_id, it.item_code);
@@ -274,7 +275,7 @@ export async function openOrdersOverview() {
     const line = {
       ...r,
       ordered: Number(r.ordered_cases || 0),
-      shipped: Math.min(Number(r.ordered_cases || 0), shippedByLine[k] || 0),
+      shipped: shippedByLine[k] || 0,   // what the documents shipped — never capped
       delivered: Number(r.received_cases || 0),
     };
     line.remaining = +Math.max(0, line.ordered - line.delivered).toFixed(2);

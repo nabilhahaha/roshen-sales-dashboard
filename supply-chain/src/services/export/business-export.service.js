@@ -5,7 +5,7 @@
 import { getClient, one } from '../supabase/client.js';
 import { buildBusinessTimeline } from '../timeline/business-timeline.service.js';
 import { listChainAttachments } from '../attachments/attachments.service.js';
-import { orderBusinessStatus, lineBusinessStatus, dnBusinessStatus, siBusinessStatus, DN_SHIPPED_STATUSES, DN_DELIVERED_STATUSES } from '../../models/business-status.js';
+import { orderBusinessStatus, lineBusinessStatus, dnBusinessStatus, siBusinessStatus, dnShipsQuantity } from '../../models/business-status.js';
 
 const XL = () => window.XLSX;
 const when = (t) => (t ? String(t).slice(0, 16).replace('T', ' ') : '');
@@ -33,11 +33,13 @@ export async function exportOrderBusinessFile(orderId) {
   if (!order) throw new Error('Order not found');
   const closedManually = !!order.close_reason;
 
-  // shipped cases per line from confirmed DNs (same rule as the screens)
-  const CONFIRMED = [...DN_SHIPPED_STATUSES, ...DN_DELIVERED_STATUSES];
+  // shipped cases per line — same single business rule as every screen
+  // (dnShipsQuantity): every delivery-note document ships its quantity,
+  // only cancelled / reversed notes ship nothing. Never capped: the export
+  // reports what the documents say was shipped.
   const shipped = {};
   (dns || []).forEach((d) => {
-    if (!CONFIRMED.includes(d.status)) return;
+    if (!dnShipsQuantity(d.status)) return;
     (d.delivery_note_items || []).forEach((it) => {
       const k = String(it.roshen_id || it.item_code);
       shipped[k] = (shipped[k] || 0) + (it.delivery_note_batches || []).reduce((a, b) => a + Number(b.cases || 0), 0);
@@ -45,7 +47,7 @@ export async function exportOrderBusinessFile(orderId) {
   });
   const agg = { ordered: 0, shipped: 0, delivered: 0 };
   const fulRows = (ful || []).map((r) => {
-    const sh = Math.min(Number(r.ordered_cases || 0), shipped[String(r.roshen_id || r.item_code)] || 0);
+    const sh = shipped[String(r.roshen_id || r.item_code)] || 0;
     agg.ordered += Number(r.ordered_cases || 0); agg.shipped += sh; agg.delivered += Number(r.received_cases || 0);
     return { ...r, shipped_cases: sh };
   });
