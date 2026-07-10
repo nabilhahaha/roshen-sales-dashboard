@@ -15,7 +15,7 @@ export function renderShell(root, { onNavigate, onSearch }) {
     </div>`;
 
   const sidebar = wireSidebar(root, onNavigate);
-  const topbar = wireTopbar(root, { onSearch, onNotif: () => onNavigate('validation') });
+  const topbar = wireTopbar(root, { onSearch, onNotif: () => onNavigate('validation'), onSettings: () => onNavigate('settings') });
 
   return {
     content: root.querySelector('#erp-content'),
