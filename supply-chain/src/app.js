@@ -82,6 +82,13 @@ function boot() {
   const app = document.getElementById('app');
   shell = renderShell(app, { onNavigate: navigate, onSearch });
   attachGlobalSearch(app.querySelector('.erp-topbar [data-el="search"]'), navigate);
+  // Ctrl+F / Cmd+F focuses the global search (Esc returns to the browser default)
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+      const s2 = app.querySelector('.erp-topbar [data-el="search"]');
+      if (s2) { e.preventDefault(); s2.focus(); s2.select(); }
+    }
+  });
   const initial = (location.hash || '').replace('#', '');
   navigate(isSection(initial) ? initial : 'purchase-orders');
 }

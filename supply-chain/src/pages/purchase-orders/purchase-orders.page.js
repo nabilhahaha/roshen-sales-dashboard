@@ -20,6 +20,8 @@ import { canCloseManually, CLOSE_REASONS } from '../../models/business-status.js
 import { renderOrdersList } from './orders-list.view.js';
 import { listRevisions } from '../../services/purchase-orders/revision.service.js';
 import { renderDocumentChain } from '../../components/related/document-chain.js';
+import { renderDocumentShell, openDrawer, closeDrawer } from '../../components/document/document-shell.js';
+import { renderDocumentsTab, renderTimelineTab, openBusinessFile } from '../../components/document/document-extras.js';
 import { buildBusinessTimeline } from '../../services/timeline/business-timeline.service.js';
 import { exportOrderBusinessFile } from '../../services/export/business-export.service.js';
 
@@ -92,6 +94,8 @@ function pseudoOrder() {
 
 function paint() {
   const h = ED.header, ro = ED.readonly, isNew = ED.id == null, dis = ro ? 'disabled' : '';
+  // V2: saved documents use the tabbed document shell; drafts keep the editor
+  if (ro && !isNew) return paintDocumentView();
   let banner = '';
   if (ro && h.status !== ORDER_STATUS.DRAFT)
     banner = `<div class="sc-locked-banner">🔒 This PI is <b>&nbsp;${esc(h.status)}&nbsp;</b> and locked.</div>`;
@@ -197,6 +201,169 @@ function paint() {
   if (!isNew) renderRelatedDocs();
   if (!isNew) renderTimeline();
   if (!isNew) renderAuditTrail();
+}
+
+// ---- V2 tabbed document view (readonly PIs) --------------------------------
+// Standard shell: header (number · supplier · status · date · amount · last
+// update) + tabs (Overview / Items / Delivery / Invoices / Documents /
+// Timeline) + always-visible quick actions. All data comes from the same
+// services as before — layout only.
+let SHELL = null;
+function paintDocumentView() {
+  const h = ED.header, d = ED.doc || {};
+  const cur = d.currency || 'SAR';
+  const totalAmount = d.total_gross != null ? money(d.total_gross) + ' ' + cur
+    : money(ED.lines.reduce((a, l) => a + (Number(l.price_case) || 0) * (Number(l.ordered_cases) || 0), 0)) + ' SAR';
+
+  // manually closed order — the close record (shown above the tabs)
+  let banner = '';
+  if (d.close_reason && ['Closed', 'Financially Closed'].includes(d.status)) {
+    banner = `<div class="sc-card" style="border-left:3px solid #E03131">
+      <div class="sc-card-h"><h3>✖ Purchase Order Closed</h3><div class="sc-spacer"></div>
+        <span style="font-size:11.5px;color:var(--text-muted)">${esc(String(d.closed_at || '').slice(0, 16).replace('T', ' '))}</span></div>
+      <div style="display:flex;gap:22px;flex-wrap:wrap;font-size:12.5px">
+        <div><span class="erp-mini">Close Reason</span><br><b>${esc(d.close_reason)}</b></div>
+        <div><span class="erp-mini">Closed By</span><br><b>${esc(d.closed_by || '—')}</b></div>
+        ${d.close_comments ? `<div style="max-width:420px"><span class="erp-mini">Comments</span><br>${esc(d.close_comments)}</div>` : ''}
+        ${d.replaced_by ? `<div><span class="erp-mini">Replaced By</span><br><button class="sc-btn sm" data-act="goorder" data-id="${d.replaced_by.id}">→ ${esc(d.replaced_by.order_number)}</button></div>` : ''}
+      </div>
+      <p style="font-size:11.5px;color:var(--text-secondary);margin:10px 0 0">Undelivered quantities are <b>Cancelled</b>. No new delivery notes or supplier invoices can be created against this order. All history is preserved.</p></div>`;
+  }
+  if (d.replaces && d.replaces.length) {
+    banner += `<div class="sc-card" style="padding:10px 16px;font-size:12.5px">↩ This order replaces:
+      ${d.replaces.map((r) => `<button class="sc-btn sm ghost" data-act="goorder" data-id="${r.id}">${esc(r.order_number)}</button>`).join(' ')}</div>`;
+  }
+
+  SHELL = renderDocumentShell(ROOT, {
+    icon: '📄', title: 'Purchase Invoice (PI) ' + h.order_number,
+    badges: orderBadge(ED.doc || h.status),
+    headRight: '<button class="sc-btn sm ghost" data-act="back">← All PIs</button>',
+    meta: [
+      { label: 'Supplier', value: h.supplier },
+      { label: 'Order Date', value: h.order_date },
+      { label: 'Expected Arrival', value: h.expected_arrival || '—' },
+      { label: 'Warehouse', value: h.warehouse || '—' },
+      { label: 'Total Amount', value: totalAmount },
+      { label: 'Business Status', value: orderBadge(ED.doc || h.status), html: true },
+      { label: 'Last Update', value: String(d.updated_at || '').slice(0, 16).replace('T', ' ') || '—' },
+    ],
+    banner,
+    activeTab: (CTX.params && CTX.params.tab),
+    tabs: [
+      { id: 'overview', label: 'Overview', icon: '📋', render: renderOverviewTab },
+      { id: 'items', label: 'Items', icon: '📦', count: ED.lines.length, render: renderItemsTab },
+      { id: 'delivery', label: 'Delivery', icon: '🚚', render: renderDeliveryTab },
+      { id: 'invoices', label: 'Supplier Invoices', icon: '🧾', render: renderInvoicesTab },
+      { id: 'documents', label: 'Documents', icon: '📎', render: (el) => renderDocumentsTab(el, { docType: 'purchase_order', docId: ED.id, orderId: ED.id, actor: 'Development' }) },
+      { id: 'timeline', label: 'Timeline', icon: '🧭', render: renderPoTimelineTab },
+    ],
+    actions: [
+      { act: 'bizfile', label: '📊 Export Excel', primary: true },
+      { act: 'bizview', label: '📁 Business File' },
+      { act: 'print', label: '🖨 Print' },
+      { act: 'related', label: '🔗 Related Documents' },
+      { act: 'gototimeline', label: '🧭 Timeline' },
+      ED.pi ? { act: 'openPI', label: '🧾 PI Validation' } : (h.status === ORDER_STATUS.APPROVED ? { act: 'import', label: '📥 Import PI' } : null),
+      { act: 'dup', label: '⧉ Duplicate' },
+      canCloseManually({ status: h.status }) ? { act: 'close', label: '✖ Close Order', danger: true } : null,
+      { act: 'refresh', label: '↻ Refresh' },
+    ],
+    onAction: (act, btn) => {
+      if (act === 'gototimeline') return SHELL.show('timeline');
+      if (act === 'bizview') return openBusinessFile(ED.id, (s, p) => CTX.navigate(s, p));
+      if (act === 'related') {
+        const body = openDrawer('🔗 Related Documents — ' + h.order_number, '');
+        renderDocumentChain(body, (s, p) => { closeDrawer(); CTX.navigate(s, p); }, { orderId: ED.id, current: { type: 'purchase_order', id: ED.id } });
+        return;
+      }
+      if (act === 'refresh') return openOrder(ED.id, 'view');
+      const fn = ACTIONS[act]; if (fn) fn({}, btn);
+    },
+  });
+
+  // ---- tab renderers (same services as before — layout only) ----
+  async function renderOverviewTab(el) {
+    const kvd = (l, v) => (v == null || v === '' ? '' : `<div style="min-width:145px"><span class="erp-mini">${l}</span><br><b style="font-size:12.5px">${esc(String(v))}</b></div>`);
+    let kpis = '';
+    try {
+      const dash = await getReceivingDashboard(ED.id);
+      const s = dash.summary || { ordered: 0, received: 0, remaining: 0 };
+      const pct = s.ordered > 0 ? Math.min(100, Math.round((s.received / s.ordered) * 100)) : 0;
+      kpis = `<div class="erp-kpi-row" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr))">
+        <div class="erp-kpi"><div class="k-lbl">Ordered</div><div class="k-val">${qty(s.ordered)}</div></div>
+        <div class="erp-kpi"><div class="k-lbl">Received</div><div class="k-val" style="color:#2FB344">${qty(s.received)}</div></div>
+        <div class="erp-kpi"><div class="k-lbl">Remaining</div><div class="k-val">${qty(s.remaining)}</div></div>
+        <div class="erp-kpi"><div class="k-lbl">Progress</div><div class="k-val">${pct}%</div></div>
+        <div class="erp-kpi"><div class="k-lbl">Status</div><div class="k-val" style="font-size:16px">${orderBadge(ED.doc || h.status)}</div></div>
+      </div>`;
+    } catch (e) { /* KPI row optional */ }
+    let docCard = '';
+    if (d.document_type || d.supplier_vat || d.customer_name || d.total_gross != null) {
+      docCard = `<div class="sc-card">
+        <div class="sc-card-h"><h3>🧾 ${esc(d.document_type || 'Supplier Document')} ${esc(d.order_number || '')}</h3><div class="sc-spacer"></div>
+          ${d.source_filename ? `<span class="mono" style="font-size:11px;color:var(--text-muted)">${esc(d.source_filename)}</span>` : ''}</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px">
+          <div><div class="erp-mini" style="margin-bottom:6px">Supplier</div>
+            <div style="display:flex;gap:18px;flex-wrap:wrap">${kvd('Company', d.supplier)}${kvd('VAT No.', d.supplier_vat)}${kvd('CR Number', d.supplier_cr)}
+              ${kvd('Short Address', d.supplier_short_address)}${kvd('Bank', d.supplier_bank)}${kvd('IBAN', d.supplier_iban)}</div></div>
+          <div><div class="erp-mini" style="margin-bottom:6px">Customer &amp; Document</div>
+            <div style="display:flex;gap:18px;flex-wrap:wrap">${kvd('Customer', d.customer_name)}${kvd('Customer VAT №', d.customer_vat)}
+              ${kvd('Document Date', d.order_date)}${kvd('Currency', d.currency)}${kvd('Salesman', d.salesman)}
+              ${kvd('Payment Terms', d.payment_terms)}</div></div>
+        </div>
+        ${d.total_gross != null || d.total_net != null ? `<div style="display:flex;gap:22px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--border-light)">
+          ${kvd('Total Units', d.total_units == null ? null : qty(d.total_units))}
+          ${kvd('Total Net (' + cur + ')', d.total_net == null ? null : money(d.total_net))}
+          ${kvd('Total VAT (' + cur + ')', d.total_vat == null ? null : money(d.total_vat))}
+          ${kvd('Grand Total (' + cur + ')', d.total_gross == null ? null : money(d.total_gross))}</div>` : ''}
+      </div>`;
+    }
+    const piStrip = ED.pi ? `<div class="sc-card" style="padding:12px 16px"><div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;font-size:12.5px">
+      <div><span class="erp-mini">PI Number</span><br><b>${esc(ED.pi.pi_number || '—')}</b></div>
+      <div><span class="erp-mini">PI Status</span><br>${piBadge(ED.pi.status)}</div>
+      <button class="sc-btn sm" style="margin-left:auto" data-act="openPI">🧾 Open Validation Report</button></div></div>` : '';
+    el.innerHTML = kpis + docCard + piStrip;
+  }
+
+  async function renderItemsTab(el) {
+    el.innerHTML = '<div data-el="receiving"></div><div data-el="lines"></div><div class="sc-summary" data-el="summary"></div>';
+    renderLines();
+    await renderReceivingProgress();
+  }
+
+  async function renderDeliveryTab(el) {
+    let dns = [];
+    try { dns = await listDeliveryNotes(ED.id); } catch (e) { dns = []; }
+    el.innerHTML = `<div class="sc-card"><div class="sc-card-h"><h3>🚚 Delivery Notes</h3>
+        <span class="sc-badge none" style="margin-left:8px">${dns.length}</span></div>
+      ${dns.length ? tableWrap(`<table class="sc-table"><thead><tr><th>DN Number</th><th>Date</th><th>Status</th><th class="num">Delivered Qty</th><th></th></tr></thead><tbody>
+        ${dns.map((x) => `<tr class="sc-row-link" data-act="opendn" data-id="${x.id}">
+          <td class="mono"><b>${esc(x.dn_number)}</b></td><td>${esc(x.dn_date || '')}</td>
+          <td>${statusBadge(x.status)}</td><td class="num">${qty(x.total_cartons || 0)}</td>
+          <td style="text-align:right;color:var(--text-muted)">→</td></tr>`).join('')}</tbody></table>`)
+        : '<p style="font-size:12px;color:var(--text-muted);margin:0">No delivery notes yet — add one from the Delivery Notes module.</p>'}</div>`;
+  }
+
+  async function renderInvoicesTab(el) {
+    let sis = [];
+    try { sis = await listInvoices(ED.id); } catch (e) { sis = []; }
+    el.innerHTML = `<div class="sc-card"><div class="sc-card-h"><h3>🧾 Supplier Invoices</h3>
+        <span class="sc-badge none" style="margin-left:8px">${sis.length}</span></div>
+      ${sis.length ? tableWrap(`<table class="sc-table"><thead><tr><th>Invoice Number</th><th>Invoice Date</th><th class="num">Amount</th><th>Matching Status</th><th>Posted</th><th></th></tr></thead><tbody>
+        ${sis.map((i) => {
+          const posted = i.delivery_note && ['Received'].includes(i.delivery_note.status);
+          return `<tr class="sc-row-link" data-act="opensi" data-id="${i.id}">
+          <td class="mono"><b>${esc(i.invoice_number)}</b></td><td>${esc(i.invoice_date || '')}</td>
+          <td class="num">${money(i.grand_total)}</td><td>${statusBadge(i.status)}</td>
+          <td>${posted ? '<span class="sc-badge confirmed">Posted</span>' : '<span class="sc-badge none">—</span>'}</td>
+          <td style="text-align:right;color:var(--text-muted)">→</td></tr>`; }).join('')}</tbody></table>`)
+        : '<p style="font-size:12px;color:var(--text-muted);margin:0">No supplier invoices linked yet.</p>'}</div>`;
+  }
+
+  async function renderPoTimelineTab(el) {
+    await renderTimelineTab(el, ED.id, '<div data-el="audit"></div>');
+    await renderAuditTrail();
+  }
 }
 
 // PI operational dashboard — the single screen of record for receiving.

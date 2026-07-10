@@ -4,6 +4,7 @@
 // screens (models/business-status.js).
 import { getClient, one } from '../supabase/client.js';
 import { buildBusinessTimeline } from '../timeline/business-timeline.service.js';
+import { listChainAttachments } from '../attachments/attachments.service.js';
 import { orderBusinessStatus, lineBusinessStatus, dnBusinessStatus, siBusinessStatus, DN_SHIPPED_STATUSES, DN_DELIVERED_STATUSES } from '../../models/business-status.js';
 
 const XL = () => window.XLSX;
@@ -99,6 +100,12 @@ export async function exportOrderBusinessFile(orderId) {
   sheet(wb, 'Business Timeline', [
     ['Date & Time', 'Event', 'User', 'Document'],
     ...timeline.map((e) => [when(e.at), e.label, e.user || '', e.doc || '']),
+  ]);
+  let chainAtts = [];
+  try { chainAtts = await listChainAttachments(orderId); } catch (e) { chainAtts = []; }
+  sheet(wb, 'Attachments', [
+    ['Source Document', 'File Name', 'Uploaded', 'Uploaded By', 'Version'],
+    ...chainAtts.map((a) => [a.doc_label, a.filename, when(a.created_at), a.uploaded_by || '', a.revision || 1]),
   ]);
   sheet(wb, 'Audit Trail', [
     ['Date & Time', 'Action', 'Actor', 'Details'],

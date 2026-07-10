@@ -281,3 +281,48 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:-apple-syst
 .app-boot-bar{width:140px;height:3px;border-radius:3px;background:var(--border);overflow:hidden;margin-top:10px}
 .app-boot-bar span{display:block;height:100%;width:40%;border-radius:3px;background:var(--gold);animation:app-boot-slide 1.1s ease-in-out infinite}
 @keyframes app-boot-slide{0%{margin-left:-40%}100%{margin-left:100%}}
+
+/* ===== V2 document shell: header + tabs + quick actions (all documents) ===== */
+.doc-head{background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:14px 18px;margin-bottom:12px}
+.doc-head-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.doc-head-top h2{font-size:17px;font-weight:800;color:var(--text-primary);display:flex;align-items:center;gap:8px;margin:0}
+.doc-head-meta{display:flex;gap:22px;flex-wrap:wrap;margin-top:10px}
+.doc-head-meta .m{min-width:110px}
+.doc-head-meta .m .l{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted)}
+.doc-head-meta .m .v{font-size:13px;font-weight:700;color:var(--text-primary);margin-top:2px}
+.doc-tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--border);margin:12px 0 0;padding:0 2px}
+.doc-tab{background:none;border:0;border-bottom:2px solid transparent;padding:9px 14px;font-size:12.5px;font-weight:700;
+  color:var(--text-secondary);cursor:pointer;border-radius:8px 8px 0 0;display:flex;align-items:center;gap:6px}
+.doc-tab:hover{background:var(--bg-card-hover);color:var(--text-primary)}
+.doc-tab.active{color:var(--accent,#FF5C6E);border-bottom-color:var(--accent,#FF5C6E)}
+.doc-tab .cnt{font-size:10px;background:var(--bg-card-hover);border:1px solid var(--border);border-radius:8px;padding:1px 6px;color:var(--text-muted)}
+.doc-grid{display:grid;grid-template-columns:minmax(0,1fr) 208px;gap:14px;align-items:start}
+.doc-aside{position:sticky;top:76px;display:flex;flex-direction:column;gap:8px}
+.doc-aside .sc-btn{justify-content:flex-start;text-align:left;width:100%}
+.doc-aside-h{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);margin:6px 2px 2px}
+@media(max-width:1080px){.doc-grid{grid-template-columns:1fr}.doc-aside{position:static;flex-direction:row;flex-wrap:wrap}.doc-aside .sc-btn{width:auto}}
+/* in-page drawer (previews, business file) — never leave the screen */
+.doc-drawer-overlay{position:fixed;inset:0;background:rgba(5,10,20,.55);z-index:220;display:flex;justify-content:flex-end}
+.doc-drawer{width:min(860px,94vw);height:100%;background:var(--bg-card);border-left:1px solid var(--border);
+  display:flex;flex-direction:column;box-shadow:-18px 0 40px rgba(0,0,0,.35);animation:drawerIn .18s ease-out}
+@keyframes drawerIn{from{transform:translateX(30px);opacity:.4}to{transform:none;opacity:1}}
+.doc-drawer-h{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border)}
+.doc-drawer-h h3{font-size:14px;font-weight:800;color:var(--text-primary);margin:0}
+.doc-drawer-b{flex:1;overflow:auto;padding:16px 18px}
+.doc-drawer-b iframe,.doc-drawer-b img{width:100%;border:1px solid var(--border);border-radius:10px;background:#fff}
+.doc-drawer-b iframe{height:calc(100vh - 130px)}
+/* sticky business header + mobile drawer (V2.1) */
+.doc-head{position:sticky;top:60px;z-index:35;box-shadow:0 6px 16px rgba(0,0,0,.12)}
+@media(max-width:760px){.doc-drawer{width:100vw;border-left:0}.doc-drawer-h .sc-btn,.doc-drawer-b .sc-btn{padding:10px 14px;font-size:13px}}
+/* smart action bar (V2.2) — inline top actions + More menu; content full width */
+.doc-actbar{display:flex;gap:6px;align-items:center;position:relative;flex-wrap:wrap}
+.doc-more-wrap{position:relative}
+.doc-more-menu{position:absolute;right:0;top:calc(100% + 6px);min-width:220px;background:var(--bg-card);border:1px solid var(--border);
+  border-radius:10px;box-shadow:0 10px 26px rgba(0,0,0,.3);padding:6px;z-index:120}
+.doc-more-item{display:block;width:100%;text-align:left;background:none;border:0;padding:8px 10px;border-radius:7px;cursor:pointer;
+  color:var(--text-primary);font-size:12.5px;font-weight:600}
+.doc-more-item:hover{background:var(--bg-card-hover)}
+@media(max-width:1250px){.doc-act-p4{display:none}}
+@media(max-width:1080px){.doc-act-p3{display:none}}
+@media(max-width:920px){.doc-act-p2{display:none}}
+@media(max-width:700px){.doc-act-p1{display:none}}

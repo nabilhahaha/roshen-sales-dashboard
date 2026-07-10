@@ -15,13 +15,13 @@ export async function globalSearch(qRaw) {
   const like = '%' + esc(q) + '%';
   const or = (fields) => fields.map((f) => `${f}.ilike.${like}`).join(',');
 
-  const [pos, dns, sis, grs, skus, batches, files] = await Promise.all([
+  const [pos, dns, sis, grs, skus, batches, files, pis] = await Promise.all([
     c.from('supply_orders')
       .select('id,order_number,supplier,status,order_date,close_reason,closed_by,created_by,warehouse')
       .or(or(['order_number', 'supplier', 'status', 'warehouse', 'created_by', 'closed_by'])).limit(LIM),
     c.from('delivery_notes')
-      .select('id,dn_number,supplier,status,dn_date,po_reference,created_by,received_by')
-      .or(or(['dn_number', 'supplier', 'status', 'po_reference', 'created_by', 'received_by'])).limit(LIM),
+      .select('id,dn_number,supplier,status,dn_date,po_reference,customer,created_by,received_by')
+      .or(or(['dn_number', 'supplier', 'status', 'po_reference', 'customer', 'created_by', 'received_by'])).limit(LIM),
     c.from('supplier_invoices')
       .select('id,invoice_number,supplier,status,invoice_date,dn_reference,created_by')
       .or(or(['invoice_number', 'supplier', 'status', 'dn_reference', 'created_by'])).limit(LIM),
@@ -38,6 +38,9 @@ export async function globalSearch(qRaw) {
       .select('id,filename,doc_type,doc_id,uploaded_by,created_at')
       .eq('superseded', false)
       .or(or(['filename', 'uploaded_by'])).limit(LIM),
+    c.from('proforma_invoices')
+      .select('id,pi_number,status,order_id')
+      .or(or(['pi_number', 'status'])).limit(LIM),
   ]);
 
   const exactFirst = (rows, key) => (rows || []).slice().sort((a, b) => {
@@ -72,6 +75,10 @@ export async function globalSearch(qRaw) {
   add('Batches', '🔖', exactFirst(batches.data, 'batch_no').map((b) => ({
     title: b.batch_no || ('batch #' + b.id), sub: [b.roshen_id || b.item_code, b.warehouse, b.expiry_date && ('exp ' + b.expiry_date)].filter(Boolean).join(' · '),
     nav: b.gr_id ? ['goods-receiving', { view: 'detail', grId: b.gr_id }] : ['purchase-orders', { orderId: b.order_id, mode: 'view' }],
+  })));
+  add('Proforma Invoices', '🧾', exactFirst(pis.data, 'pi_number').map((x) => ({
+    title: x.pi_number, sub: x.status || '',
+    nav: ['purchase-orders', { orderId: x.order_id, mode: 'view' }],
   })));
   add('Attached Files', '📎', (files.data || []).map((f) => ({
     title: f.filename, sub: `${f.doc_type.replace('_', ' ')} · ${f.uploaded_by || ''} · ${String(f.created_at || '').slice(0, 10)}`,
