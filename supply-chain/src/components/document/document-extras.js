@@ -4,11 +4,13 @@
 //   - the "Business File" drawer: the whole connected transaction in one place
 //     (document chain → attachments → timeline → audit), no navigation needed
 import { esc } from '../../utils/format.js';
-import { openDrawer } from './document-shell.js';
 import { attachmentsPanel, previewAttachment } from '../attachments/attachments-panel.js';
-import { renderDocumentChain } from '../related/document-chain.js';
 import { listChainAttachments, attachmentUrl, kindOf, canPreview } from '../../services/attachments/attachments.service.js';
 import { buildBusinessTimeline } from '../../services/timeline/business-timeline.service.js';
+// Business File — the hierarchical document chain (PI → delivery notes, each
+// owning its receipt + invoice + attachments). Re-exported so every page keeps
+// its existing import path.
+export { openBusinessFile } from './business-file.js';
 
 const ICON = { pdf: '📄', image: '🖼', sheet: '📊' };
 const when = (t) => esc(String(t || '').slice(0, 16).replace('T', ' '));
@@ -75,13 +77,3 @@ export async function renderTimelineTab(el, orderId, extraHtml = '') {
       : '<p style="font-size:12px;color:var(--text-muted);margin:0">No events yet.</p>'}</div>${extraHtml}`;
 }
 
-// Business File — one drawer with the ENTIRE connected transaction
-export async function openBusinessFile(orderId, navigate) {
-  const body = openDrawer('📁 Business File — the complete transaction', '<p style="font-size:12px;color:var(--text-muted)">Loading…</p>');
-  body.innerHTML = '<div data-x="chain"></div><div data-x="files"></div><div data-x="tl"></div>';
-  await renderDocumentChain(body.querySelector('[data-x="chain"]'), navigate, { orderId, current: {} });
-  const filesHost = body.querySelector('[data-x="files"]');
-  filesHost.innerHTML = await chainFilesGrid(orderId, { title: '📎 Attachments' });
-  wireChainFilesGrid(filesHost, orderId);
-  await renderTimelineTab(body.querySelector('[data-x="tl"]'), orderId);
-}

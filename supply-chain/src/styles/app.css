@@ -352,3 +352,51 @@ button.is-busy,.sc-btn.is-busy{display:inline-flex;align-items:center;gap:7px;ju
 .sk-page-head{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:700;color:var(--text-secondary);margin:2px 0 14px}
 .sk-page-head .sc-spin{color:var(--gold,#E8B54A)}
 .sk-page .sc-table td,.sk-page .sc-table th{border-bottom-color:var(--border)}
+
+/* ---- V2.4 Business File: hierarchical document tree ---------------------- */
+.bf-sticky{position:sticky;top:-16px;z-index:10;background:var(--bg-card);margin:-6px -4px 12px;padding:8px 4px 10px;border-bottom:1px solid var(--border)}
+.bf-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
+.bf-card{background:var(--bg-input);border:1px solid var(--border);border-radius:11px;padding:9px 12px;text-align:left;cursor:pointer;color:var(--text-primary)}
+.bf-card:hover{background:var(--bg-card-hover);border-color:var(--border-light)}
+.bf-card span{display:block;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--text-muted)}
+.bf-card b{font-size:17px}
+.bf-search{margin-top:8px}
+.bf-search .sc-input{width:100%}
+.bf-root{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);font-weight:800;margin:2px 0 6px}
+/* nodes + connector lines */
+.bf-node{border:1px solid var(--border);border-radius:12px;background:var(--bg-card);margin:8px 0;overflow:hidden}
+.bf-head{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;flex-wrap:wrap}
+.bf-head:hover{background:var(--bg-card-hover)}
+.bf-head .mono{font-size:13px}
+.bf-caret{color:var(--text-muted);font-size:11px;transition:transform .15s;flex:none}
+.bf-node.open>.bf-head .bf-caret{transform:rotate(90deg)}
+.bf-ic{flex:none}
+.bf-meta{font-size:11.5px;color:var(--text-secondary);margin-left:2px}
+.bf-open{margin-left:auto}
+.bf-body{display:none;padding:4px 12px 12px;border-top:1px solid var(--border)}
+.bf-node.open>.bf-body{display:block}
+.bf-info{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin:10px 0 4px}
+.bf-kv{background:var(--bg-input);border:1px solid var(--border);border-radius:9px;padding:7px 10px}
+.bf-kv span{display:block;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--text-muted)}
+.bf-kv b{font-size:12.5px}
+/* the tree indent + connector line: children hang off their delivery note */
+.bf-children{margin:8px 0 0 14px;padding-left:14px;border-left:2px solid var(--border)}
+.bf-children .bf-node{position:relative}
+.bf-children .bf-node::before{content:'';position:absolute;left:-16px;top:22px;width:14px;height:2px;background:var(--border)}
+.bf-tree>.bf-dn{margin-left:14px;position:relative}
+.bf-tree>.bf-dn::before{content:'';position:absolute;left:-14px;top:22px;width:12px;height:2px;background:var(--border)}
+.bf-sec{display:flex;align-items:center;gap:8px;margin:14px 0 4px}
+.bf-sec h3{font-size:13px;font-weight:800;margin:0}
+.bf-secnote{font-size:11px;color:var(--text-muted)}
+.bf-empty{display:flex;align-items:center;gap:6px;padding:10px 12px;font-size:12.5px;font-weight:700;color:var(--text-secondary)}
+.bf-empty span{font-weight:500;color:var(--text-muted)}
+.bf-pending{border-style:dashed;background:var(--bg-input)}
+/* responsive: tablet keeps the accordion, mobile flattens the indent */
+@media(max-width:900px){.bf-children{margin-left:8px;padding-left:8px}.bf-tree>.bf-dn{margin-left:8px}}
+@media(max-width:640px){
+  .bf-children{margin-left:0;padding-left:6px}
+  .bf-tree>.bf-dn{margin-left:0}
+  .bf-tree>.bf-dn::before,.bf-children .bf-node::before{display:none}
+  .bf-meta{width:100%;order:9}
+  .bf-cards{grid-template-columns:repeat(2,1fr)}
+}
