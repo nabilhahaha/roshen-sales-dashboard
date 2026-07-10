@@ -243,8 +243,15 @@ export async function listDeliveryNotes(orderId) {
     ...d,
     order: one(d.supply_orders),
     invoice: one(d.supplier_invoices),
-    goods_receipt: one(d.goods_receipts),
+    goods_receipt: activeGr(d.goods_receipts),
   }));
+}
+
+// A DN may carry a cancelled (reversed) receipt next to its active one — the
+// ACTIVE receipt is the document of record; a cancelled one only if none else.
+function activeGr(grs) {
+  const list = grs || [];
+  return list.find((g) => g.status !== 'Cancelled') || one(list);
 }
 
 export async function getDeliveryNote(id) {
@@ -266,7 +273,7 @@ export async function getDeliveryNote(id) {
     items: (data.delivery_note_items || []).map((it) => ({ ...it, batches: it.delivery_note_batches || [] })),
     invoice: primary,
     invoices,
-    goods_receipt: one(data.goods_receipts),
+    goods_receipt: activeGr(data.goods_receipts),
   };
 }
 

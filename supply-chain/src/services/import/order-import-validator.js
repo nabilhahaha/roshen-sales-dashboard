@@ -11,7 +11,8 @@
 // reported separately. O(n) with hash lookups → handles thousands of rows.
 import { parseNumber } from '../../utils/format.js';
 
-export function validateImport(rows, mapByIdx, skus) {
+export function validateImport(rows, mapByIdx, skus, opts = {}) {
+  const numberLocale = opts.numberLocale || null;   // source document's written number format
   const byCode = {}, byRoshen = {};
   skus.forEach((s) => {
     byCode[String(s.item_code).trim().toLowerCase()] = s;
@@ -52,12 +53,12 @@ export function validateImport(rows, mapByIdx, skus) {
       return;
     }
 
-    const qty = parseNumber(rawQty);
+    const qty = parseNumber(rawQty, numberLocale);
     if (qty == null) { errors.push({ rowNo, code: sku.item_code, roshen: sku.roshen_id || '—', qty: rawQty || '—', reason: 'Quantity is required' }); return; }
     if (!(qty > 0)) { errors.push({ rowNo, code: sku.item_code, roshen: sku.roshen_id || '—', qty: rawQty, reason: 'Quantity must be greater than zero' }); return; }
 
     const key = sku.item_code;
-    const num = (f) => (has(f) ? parseNumber(get(row, f)) : null);
+    const num = (f) => (has(f) ? parseNumber(get(row, f), numberLocale) : null);
     if (merged[key]) {
       const m = merged[key];
       m.ordered_cases += qty; m.merges.push(qty); duplicatesMerged++;

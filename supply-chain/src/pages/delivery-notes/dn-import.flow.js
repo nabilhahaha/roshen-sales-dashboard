@@ -135,7 +135,7 @@ export async function startDnImport(root, ctx) {
     let ful;
     try { ful = await getFulfillment(state.order.id); }
     catch (e) { return mount(root, emptyState('⚠', e.message || String(e))); }
-    const built = buildDeliveryNote({ rows: state.parsed.rows, mapByIdx: state.mapByIdx, skuIndex: { byRoshen, byCode }, fulfillment: ful, asOf: today() });
+    const built = buildDeliveryNote({ rows: state.parsed.rows, mapByIdx: state.mapByIdx, skuIndex: { byRoshen, byCode }, fulfillment: ful, asOf: today(), numberLocale: state.parsed.numberLocale });
     state.built = built;
     const s = built.summary;
 
@@ -170,6 +170,7 @@ export async function startDnImport(root, ctx) {
           ${tile('Over balance', s.overDelivery, s.overDelivery ? 'grand' : '')}${tile('Below shelf life', s.belowShelfLife, s.belowShelfLife ? 'grand' : '')}
         </div>
         ${s.belowShelfLife ? '<p style="font-size:12px;color:#F76707;margin:10px 0 0">⚠ Some batches are below the SKU minimum remaining shelf life. They are not rejected here — the warehouse manager decides during Goods Receiving (Accept Exception / Reject), and every exception is audited.</p>' : ''}
+        ${(s.fractionalQty || []).length ? `<p style="font-size:12px;color:#E03131;margin:10px 0 0">⚠ ${s.fractionalQty.length} batch quantity(ies) are NOT whole cartons (${s.fractionalQty.slice(0, 4).map((f) => `${esc(String(f.roshen_id || f.line_key))}: ${f.cases}`).join(' · ')}${s.fractionalQty.length > 4 ? '…' : ''}). Cartons are whole units — check the document's number format before creating this delivery note.</p>` : ''}
       </div>
       <div class="sc-card"><div class="sc-card-h"><h3>📦 Lines &amp; Batches</h3></div>
         <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Batch / Lot</th><th>Expiry</th><th>Mfg</th><th class="num">Cases</th><th>Remaining shelf life</th><th></th></tr></thead><tbody>${lineRows}</tbody></table></div></div>

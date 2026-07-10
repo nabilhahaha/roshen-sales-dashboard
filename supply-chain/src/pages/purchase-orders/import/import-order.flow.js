@@ -92,7 +92,7 @@ export async function startImportFlow(root, ctx, arrayBuffer, filename, original
     const fields = new Set(Object.values(mapByIdx));
     if (!fields.has('quantity')) { toast('Map a column to Quantity', 'err'); return; }
     if (!fields.has('item_code') && !fields.has('roshen_id')) { toast('Map a column to Item Code or Roshen ID', 'err'); return; }
-    const result = validateImport(parsed.rows, mapByIdx, skus);
+    const result = validateImport(parsed.rows, mapByIdx, skus, { numberLocale: parsed.numberLocale });
     renderPreview(root, {
       result, filename,
       handlers: {
