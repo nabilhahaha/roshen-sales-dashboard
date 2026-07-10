@@ -120,7 +120,7 @@ export async function createDeliveryNote(dn) {
     // quantity. Blocked by default; an explicit allowOverDelivery records the
     // excess as a disputed over-delivery instead (it still can never be
     // RECEIVED — goods receipt is hard-capped at the PI quantity).
-    if (!dn.allowOverDelivery) {
+    if (dn.allowOverDelivery !== true) {   // only an explicit boolean true bypasses
       const violations = [];
       for (const line of dn.lines || []) {
         const lk = line.line_key || keyOf(line.roshen_id, line.item_code);

@@ -180,7 +180,11 @@ export async function startDnImport(root, ctx) {
   }
 
   let creating = false;
-  async function doCreate(allowOverDelivery = false) {
+  async function doCreate(arg) {
+    // wire() invokes handlers with the button's data attributes — only an
+    // EXPLICIT boolean true (from the dispute-confirmation modal) may bypass
+    // the PO-quantity guard.
+    const allowOverDelivery = arg === true;
     if (creating) return;                    // guard against double submit
     creating = true;
     const btn = root.querySelector('[data-act="create"]');

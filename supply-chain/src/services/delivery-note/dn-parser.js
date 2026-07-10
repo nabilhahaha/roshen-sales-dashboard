@@ -8,6 +8,8 @@ const isBlank = (v) => v == null || String(v).trim() === '';
 
 // Value for a labelled header cell: the next non-empty cell to its right on
 // the same row, else any trailing text in the label cell itself.
+import { parseDate, toISO } from '../../models/shelf-life.js';
+
 function headerValue(grid, labelRe, maxRow) {
   for (let r = 0; r < Math.min(grid.length, maxRow); r++) {
     const row = grid[r] || [];
@@ -40,7 +42,8 @@ export function parseDeliveryNote(arrayBuffer, XLSX) {
 
   const header = {
     dn_number: headerValue(grid, /goods\s*issue\s*note|delivery\s*note(?:\s*no\.?)?|^dn\b/i, maxRow),
-    dn_date: headerValue(grid, /^date\s*:?/i, maxRow),
+    dn_date: (() => { const raw = headerValue(grid, /^date\s*:?/i, maxRow);
+      const d = parseDate(raw); return d ? toISO(d) : raw; })(),
     po_reference: headerValue(grid, /purchase\s*order\s*(no\.?|number)?/i, maxRow),
     supplier: headerValue(grid, /^(?:company|supplier|vendor)\b/i, maxRow),
     customer: headerValue(grid, /^customer\b(?!\s*(cr|vat))/i, maxRow),
