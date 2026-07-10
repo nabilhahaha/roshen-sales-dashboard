@@ -243,10 +243,11 @@ export async function releaseGoodsReceipt(grId, opts = {}) {
   return { status, released: rel, rejected: rej, total };
 }
 
-// Keep the PO's operational status in sync with the fulfillment ledger AFTER
+// Keep the PI's operational status in sync with the fulfillment ledger AFTER
 // the goods-receipt header is final (the DB trigger fires per movement, before
-// the GR is marked Released, so it can lag one release behind). Never touches
-// the explicit financial states (Invoice Matched / Financially Closed).
+// the GR is marked Released, so it can lag one release behind). The PI CLOSES
+// automatically only when every ordered quantity has been received — per line,
+// not just in total. Never touches the explicit financial states.
 async function syncOrderReceivingStatus(orderId) {
   const c = getClient();
   const { data: o } = await c.from('supply_orders').select('status').eq('id', orderId).single();
@@ -254,9 +255,11 @@ async function syncOrderReceivingStatus(orderId) {
   const { data: rows } = await c.from('po_line_fulfillment').select('ordered_cases,delivered_cases,received_cases').eq('order_id', orderId);
   if (!rows || !rows.length) return;
   let ordered = 0, delivered = 0, received = 0;
+  const everyLineReceived = rows.every((r) => Number(r.received_cases || 0) >= Number(r.ordered_cases || 0) - 0.0001);
   rows.forEach((r) => { ordered += Number(r.ordered_cases || 0); delivered += Number(r.delivered_cases || 0); received += Number(r.received_cases || 0); });
   let status = null;
-  if (received > 0) status = received >= ordered - 0.0001 ? 'Fully Received' : 'Partially Received';
+  if (received > 0 && everyLineReceived) status = 'Closed';           // auto-close: everything received
+  else if (received > 0) status = 'Partially Received';
   else if (delivered > 0) status = delivered >= ordered - 0.0001 ? 'Fully Delivered' : 'Partially Delivered';
   if (status && status !== o.status) {
     await c.from('supply_orders').update({ status, updated_at: new Date().toISOString() }).eq('id', orderId);

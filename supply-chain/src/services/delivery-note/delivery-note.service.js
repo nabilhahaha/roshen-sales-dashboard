@@ -99,25 +99,43 @@ export async function createDeliveryNote(dn) {
   // revision) quantity. Blocked by default; an explicit allowOverDelivery
   // records the excess as a disputed over-delivery instead (it still can never
   // be RECEIVED — goods receipt is hard-capped at the PO quantity).
-  if (!dn.allowOverDelivery) {
+  {
     const ful = await getFulfillment(dn.orderId);
     const fulByKey = {};
     ful.forEach((r) => { fulByKey[keyOf(r.roshen_id, r.item_code)] = r; });
-    const violations = [];
-    for (const line of dn.lines || []) {
-      const lk = line.line_key || keyOf(line.roshen_id, line.item_code);
-      const f = fulByKey[lk];
-      if (!f) continue; // not a PO line — flagged as "additional" separately
-      const add = (line.batches || []).reduce((a, b) => a + Number(b.cases || 0), 0);
-      const ordered = Number(f.ordered_cases || 0), delivered = Number(f.delivered_cases || 0);
-      if (delivered + add > ordered + 0.0001) {
-        violations.push(`${f.description || lk}: PO allows ${ordered}, ${delivered} already delivered, this delivery adds ${add} (${delivered + add - ordered} over)`);
-      }
-    }
-    if (violations.length) {
-      const err = new Error('Delivery exceeds the purchase order quantity — ' + violations.join('; ') + '. Reduce the quantities, or record it explicitly as a disputed over-delivery.');
-      err.code = 'OVER_DELIVERY';
+
+    // Rule: every item on the delivery note must exist on the PI. An unknown
+    // item is a hard block — there is no override; correct the document or
+    // the PI first.
+    const unknown = (dn.lines || []).filter((line) => !fulByKey[line.line_key || keyOf(line.roshen_id, line.item_code)]);
+    if (unknown.length) {
+      const err = new Error('Items not on the purchase order: ' +
+        unknown.map((l) => l.description || l.roshen_id || l.item_code || '?').join(', ') +
+        '. Every delivery-note item must exist on the PI — remove these lines or revise the PI first.');
+      err.code = 'ITEM_NOT_ON_PO';
       throw err;
+    }
+
+    // Rule: the cumulative quantity across all DNs can never exceed the PI
+    // quantity. Blocked by default; an explicit allowOverDelivery records the
+    // excess as a disputed over-delivery instead (it still can never be
+    // RECEIVED — goods receipt is hard-capped at the PI quantity).
+    if (!dn.allowOverDelivery) {
+      const violations = [];
+      for (const line of dn.lines || []) {
+        const lk = line.line_key || keyOf(line.roshen_id, line.item_code);
+        const f = fulByKey[lk];
+        const add = (line.batches || []).reduce((a, b) => a + Number(b.cases || 0), 0);
+        const ordered = Number(f.ordered_cases || 0), delivered = Number(f.delivered_cases || 0);
+        if (delivered + add > ordered + 0.0001) {
+          violations.push(`${f.description || lk}: PO allows ${ordered}, ${delivered} already delivered, this delivery adds ${add} (${delivered + add - ordered} over)`);
+        }
+      }
+      if (violations.length) {
+        const err = new Error('Delivery exceeds the purchase order quantity — ' + violations.join('; ') + '. Reduce the quantities, or record it explicitly as a disputed over-delivery.');
+        err.code = 'OVER_DELIVERY';
+        throw err;
+      }
     }
   }
 
@@ -237,6 +255,48 @@ export async function setDeliveryNoteStatus(id, status) {
   if (status === 'Received') patch.received_at = new Date().toISOString();
   const { error } = await getClient().from('delivery_notes').update(patch).eq('id', id);
   if (error) throw error;
+}
+
+// ---- shipment stage ---------------------------------------------------
+// After the supplier invoice matches, the shipment is Ready for Delivery /
+// In Transit with an expected delivery date & time — NOT yet inventory.
+// Goods receipt happens only when the arrival is confirmed.
+
+// Called by the invoice service when a DN's invoice becomes Matched.
+export async function markDnReadyForDelivery(dnId, { actor } = {}) {
+  const c = getClient();
+  const { data: dn } = await c.from('delivery_notes').select('id,order_id,status').eq('id', dnId).single();
+  if (!dn || !['Imported', 'Draft'].includes(dn.status)) return; // never regress a later stage
+  const { error } = await c.from('delivery_notes')
+    .update({ status: 'Ready for Delivery', updated_at: new Date().toISOString() }).eq('id', dnId);
+  if (error) throw error;
+  try { await logDnAudit(dnId, dn.order_id, 'status_change', { detail: { to: 'Ready for Delivery', reason: 'supplier invoice matched' }, actor }); } catch (e) { /* best-effort */ }
+}
+
+// Dispatch the shipment: set In Transit + the expected delivery date & time.
+export async function markDnInTransit(dnId, { expectedAt, actor } = {}) {
+  const dn = await getDeliveryNote(dnId);
+  if (!['Ready for Delivery', 'Imported', 'In Transit'].includes(dn.status)) {
+    throw new Error(`Cannot dispatch a ${dn.status.toLowerCase()} delivery note.`);
+  }
+  if (dn.status === 'Imported' && !(dn.invoice && dn.invoice.status === 'Matched')) {
+    throw new Error('The supplier invoice must be matched before the shipment can be dispatched.');
+  }
+  const { error } = await getClient().from('delivery_notes').update({
+    status: 'In Transit', expected_delivery_at: expectedAt || null, updated_at: new Date().toISOString(),
+  }).eq('id', dnId);
+  if (error) throw error;
+  try { await logDnAudit(dnId, dn.order_id, 'status_change', { detail: { to: 'In Transit', expected_delivery_at: expectedAt || null }, actor }); } catch (e) { /* best-effort */ }
+  return { inTransit: true };
+}
+
+// Update / set the expected delivery date & time on its own.
+export async function setExpectedDelivery(dnId, expectedAt, { actor } = {}) {
+  const { data: dn, error } = await getClient().from('delivery_notes')
+    .update({ expected_delivery_at: expectedAt || null, updated_at: new Date().toISOString() })
+    .eq('id', dnId).select('order_id').single();
+  if (error) throw error;
+  try { await logDnAudit(dnId, dn.order_id, 'status_change', { detail: { expected_delivery_at: expectedAt || null }, actor }); } catch (e) { /* best-effort */ }
 }
 
 const hasReleasedGr = (gr) => gr && ['Released', 'Partially Released'].includes(gr.status);

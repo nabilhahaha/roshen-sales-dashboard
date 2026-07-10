@@ -8,6 +8,7 @@ import * as dashboard from './pages/dashboard/dashboard.page.js';
 import * as skuMaster from './pages/sku-master/sku-master.page.js';
 import * as purchaseOrders from './pages/purchase-orders/purchase-orders.page.js';
 import * as orderHistory from './pages/order-history/order-history.page.js';
+import * as openOrders from './pages/open-orders/open-orders.page.js';
 import * as piImport from './pages/pi-import/pi-import.page.js';
 import * as validation from './pages/validation/validation.page.js';
 import * as workflow from './pages/workflow/workflow.page.js';
@@ -25,6 +26,7 @@ const PAGES = {
   'sku-master': skuMaster,
   'purchase-orders': purchaseOrders,
   'order-history': orderHistory,
+  'open-orders': openOrders,
   'import-order': importOrder,
   'po-revision': poRevision,
   'pi-import': piImport,

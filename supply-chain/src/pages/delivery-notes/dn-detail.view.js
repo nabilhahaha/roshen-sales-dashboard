@@ -11,6 +11,7 @@ import { statusBadge, qcBadge, shelfChip } from '../../components/table/badges.j
 import { shelfLife } from '../../models/shelf-life.js';
 import {
   getDeliveryNote, editDeliveryNote, cancelDeliveryNote, reverseDeliveryNote, listDnAudit,
+  markDnInTransit, setExpectedDelivery,
 } from '../../services/delivery-note/delivery-note.service.js';
 import { getFulfillmentWithSummary } from '../../services/fulfillment/fulfillment.service.js';
 import { listSkus, indexByRoshen, indexByCode } from '../../services/sku/sku.service.js';
@@ -89,11 +90,19 @@ export async function renderDnDetail(root, ctx, dnId) {
     grCard = `<div class="sc-card"><div class="sc-card-h"><h3>📦 Goods Receipt</h3><div class="sc-spacer"></div>${statusBadge(gr.status)}</div>
       <button class="sc-btn primary" data-act="opengr" data-id="${gr.id}">Open Goods Receipt →</button></div>`;
   } else {
-    grCard = `<div class="sc-card"><div class="sc-card-h"><h3>📦 Goods Receipt</h3></div>
-      <p style="font-size:12.5px;color:var(--text-secondary)">${invMatched
-        ? 'Invoice matched — you can now receive the goods (batch-level QC). Receiving is capped at the approved PO quantity.'
-        : 'Blocked: match a supplier invoice to this delivery note first.'}</p>
-      <button class="sc-btn ${invMatched ? 'green' : 'ghost'}" data-act="creategr" ${invMatched ? '' : 'disabled'}>🏬 Create Goods Receipt</button></div>`;
+    const eta = dn.expected_delivery_at ? String(dn.expected_delivery_at).slice(0, 16).replace('T', ' ') : null;
+    const inTransit = dn.status === 'In Transit', ready = dn.status === 'Ready for Delivery';
+    grCard = `<div class="sc-card"><div class="sc-card-h"><h3>🛫 Shipment &amp; Receiving</h3><div class="sc-spacer"></div>${(ready || inTransit) ? statusBadge(dn.status) : ''}</div>
+      <p style="font-size:12.5px;color:var(--text-secondary)">${!invMatched
+        ? 'Blocked: the supplier invoice must match this delivery note first (same items, quantities and prices).'
+        : inTransit
+          ? `Shipment in transit${eta ? ' — expected <b>' + esc(eta) + '</b>' : ''}. Confirm the arrival to receive the goods into the warehouse.`
+          : 'Invoice matched — the shipment is ready. Dispatch it with an expected delivery date &amp; time, then confirm the arrival to receive into the warehouse (capped at the PI quantity).'}</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        ${invMatched && !inTransit ? '<button class="sc-btn primary" data-act="dispatch">🛫 Dispatch — set ETA</button>' : ''}
+        ${invMatched && inTransit ? '<button class="sc-btn sm ghost" data-act="dispatch">🕓 Update ETA</button>' : ''}
+        <button class="sc-btn ${invMatched ? 'green' : 'ghost'}" data-act="creategr" ${invMatched ? '' : 'disabled'}>🏬 Confirm arrival → Goods Receipt</button>
+      </div></div>`;
   }
 
   const auditCard = `<div class="sc-card"><div class="sc-card-h"><h3>🕓 Audit Trail</h3><div class="sc-spacer"></div>
@@ -162,6 +171,22 @@ export async function renderDnDetail(root, ctx, dnId) {
     },
     opengr: ({ id }) => ctx.navigate('goods-receiving', { view: 'detail', grId: id }),
     openinv: ({ id }) => ctx.navigate('supplier-invoices', { view: 'detail', invoiceId: id }),
+    dispatch: () => {
+      const cur = dn.expected_delivery_at ? String(dn.expected_delivery_at).slice(0, 16) : '';
+      modal('🛫 Dispatch shipment', `
+        <p style="font-size:12.5px;color:var(--text-secondary);margin-top:0">Set the expected delivery date &amp; time. The shipment becomes <b>In Transit</b> — it is not inventory until the arrival is confirmed.</p>
+        <div class="sc-field"><label>Expected delivery (date &amp; time)</label><input id="dn-eta" class="sc-input" type="datetime-local" value="${esc(cur)}"></div>`, [
+        { label: dn.status === 'In Transit' ? 'Update ETA' : 'Dispatch', cls: 'primary', onClick: async () => {
+            const v = (document.getElementById('dn-eta') || {}).value || null;
+            try {
+              if (dn.status === 'In Transit') { await setExpectedDelivery(dnId, v, { actor: ACTOR }); toast('ETA updated', 'ok'); }
+              else { await markDnInTransit(dnId, { expectedAt: v, actor: ACTOR }); toast('Shipment in transit', 'ok'); }
+              renderDnDetail(root, ctx, dnId);
+            } catch (e) { toast(e.message || String(e), 'err'); }
+          } },
+        { label: 'Back', cls: 'ghost' },
+      ]);
+    },
   });
 }
 

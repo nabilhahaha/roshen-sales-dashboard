@@ -7,6 +7,7 @@ import { getClient, one } from '../supabase/client.js';
 import { lineKey as keyOf } from '../../utils/format.js';
 import { compareInvoiceToDeliveryNote } from './invoice-compare.js';
 import { matchInvoiceLines } from './invoice-line-match.js';
+import { markDnReadyForDelivery } from '../delivery-note/delivery-note.service.js';
 
 // ---- audit trail (mirrors the delivery-note audit log) --------------
 export async function logInvoiceAudit(invoiceId, orderId, action, { detail, note, actor } = {}) {
@@ -179,6 +180,8 @@ export async function createSupplierInvoiceFromUpload(inv) {
   // invoice (credit/debit notes are adjustments, not matched against delivery).
   if (inv.deliveryNoteId && (inv.docType || 'invoice') === 'invoice') {
     try { await matchInvoiceLineLevel(invRow.id, { actor: inv.createdBy, keepStatus: true }); } catch (e) { /* best-effort */ }
+    // Matched invoice → the shipment becomes Ready for Delivery (not yet inventory).
+    if (invRow.status === 'Matched') { try { await markDnReadyForDelivery(inv.deliveryNoteId, { actor: inv.createdBy }); } catch (e) { /* best-effort */ } }
   }
   return invRow;
 }
@@ -246,6 +249,8 @@ export async function matchInvoiceLineLevel(invoiceId, { actor, keepStatus = fal
   const { error } = await c.from('supplier_invoices').update(patch).eq('id', invoiceId);
   if (error) throw error;
   if (!keepStatus) { try { await logInvoiceAudit(invoiceId, inv.order_id, status === 'Disputed' ? 'disputed' : 'matched', { detail: result.summary, actor }); } catch (e) { /* best-effort */ } }
+  // Matched invoice → the shipment becomes Ready for Delivery (not yet inventory).
+  if (patch.status === 'Matched' && inv.delivery_note_id) { try { await markDnReadyForDelivery(inv.delivery_note_id, { actor }); } catch (e) { /* best-effort */ } }
   return { status: patch.status || inv.status, result, matched: result.summary.ok, partial: result.summary.okPartial && !result.summary.ok };
 }
 
@@ -391,6 +396,7 @@ export async function matchInvoiceToDeliveryNote(invoiceId) {
   const { error } = await c.from('supplier_invoices')
     .update({ status, match_summary: cmp, validation_summary: cmp, updated_at: new Date().toISOString() }).eq('id', invoiceId);
   if (error) throw error;
+  if (status === 'Matched' && inv.delivery_note_id) { try { await markDnReadyForDelivery(inv.delivery_note_id, {}); } catch (e) { /* best-effort */ } }
   return { status, summary: cmp, matched: cmp.ok };
 }
 

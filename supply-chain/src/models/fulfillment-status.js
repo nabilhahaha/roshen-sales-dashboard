@@ -44,7 +44,7 @@ export const PO_FULFILLMENT = {
 // Badge variant (maps to existing .sc-badge classes) for each status value.
 export const STATUS_VARIANT = {
   // DN
-  Imported: 'pi', 'Receiving Review': 'closed', Received: 'confirmed', Cancelled: 'draft', Reversed: 'draft', Draft: 'draft',
+  Imported: 'pi', 'Ready for Delivery': 'approved', 'In Transit': 'pi', 'Receiving Review': 'closed', Received: 'confirmed', Cancelled: 'draft', Reversed: 'draft', Draft: 'draft',
   // SI
   Matched: 'confirmed', 'Partially Matched': 'pi', Disputed: 'closed', Replaced: 'draft',
   // GR / QC

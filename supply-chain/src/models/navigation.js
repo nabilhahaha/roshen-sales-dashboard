@@ -4,6 +4,7 @@ export const NAV = [
   { group: 'Procurement', items: [
     { id: 'sku-master', icon: '🧾', label: 'SKU Master' },
     { id: 'purchase-orders', icon: '🛒', label: 'Purchase Orders' },
+    { id: 'open-orders', icon: '⏳', label: 'Open Orders' },
     { id: 'order-history', icon: '📋', label: 'Order History' },
   ] },
   { group: 'Supplier Documents', items: [

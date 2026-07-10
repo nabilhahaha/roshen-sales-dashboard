@@ -9,7 +9,8 @@ import { toast } from '../../components/notifications/toast.js';
 import { one } from '../../services/supabase/client.js';
 import { listSkus, indexByCode } from '../../services/sku/sku.service.js';
 import * as Orders from '../../services/purchase-orders/orders.service.js';
-import { getFulfillmentWithSummary } from '../../services/fulfillment/fulfillment.service.js';
+import { getReceivingDashboard } from '../../services/fulfillment/fulfillment.service.js';
+import { statusBadge } from '../../components/table/badges.js';
 import { printOrder, exportOrderExcel } from '../../utils/documents.js';
 import { ORDER_STATUS } from '../../models/order-status.js';
 
@@ -102,39 +103,83 @@ function paint() {
   if (!isNew && h.status !== ORDER_STATUS.DRAFT) renderReceivingProgress();
 }
 
-// Live receiving progress — the PO is the source of truth; ordered / received /
-// remaining derive from the fulfillment ledger and update on every reload.
+// PI operational dashboard — the single screen of record for receiving.
+// Per line: Ordered / Received (live) / Remaining / % / DN + GR counts / last
+// receipt / Open-Partial-Completed status. Clicking a line drills into the
+// linked delivery notes, goods receipts and received batches.
+let DASH_ROWS = [];
+let DASH_SHOW_ALL = false;
 async function renderReceivingProgress() {
   const el = qs('[data-el="receiving"]', ROOT);
   if (!el || !ED.id) return;
-  let ful;
-  try { ful = await getFulfillmentWithSummary(ED.id); } catch (e) { return; }
-  if (!ful.rows.length) return;
-  const s = ful.summary;
+  let dash;
+  try { dash = await getReceivingDashboard(ED.id); } catch (e) { return; }
+  if (!dash.rows.length) return;
+  DASH_ROWS = dash.rows;
+  paintDashboard(el, dash);
+}
+
+function paintDashboard(el, dash) {
+  const s = dash.summary;
   const pct = s.ordered > 0 ? Math.min(100, Math.round((s.received / s.ordered) * 100)) : 0;
-  const bar = (o, r) => {
-    const p = o > 0 ? Math.min(100, Math.round((r / o) * 100)) : 0;
-    return `<div style="display:flex;align-items:center;gap:8px"><div style="flex:1;height:6px;border-radius:4px;background:var(--border-light);overflow:hidden">
+  const completedN = dash.rows.filter((r) => r.line_status === 'Completed').length;
+  const hideDone = !DASH_SHOW_ALL && completedN > 0 && completedN < dash.rows.length;
+  const visible = hideDone ? dash.rows.filter((r) => r.line_status !== 'Completed') : dash.rows;
+  const bar = (p) => `<div style="display:flex;align-items:center;gap:8px"><div style="flex:1;height:6px;border-radius:4px;background:var(--border-light);overflow:hidden">
       <div style="width:${p}%;height:100%;background:${p >= 100 ? '#2FB344' : '#1971C2'}"></div></div><span style="font-size:11px;color:var(--text-muted);min-width:34px">${p}%</span></div>`;
-  };
-  const rows = ful.rows.map((r) => {
-    const ordered = Number(r.ordered_cases || 0), received = Number(r.received_cases || 0);
-    const remaining = Number(r.remaining_cases != null ? r.remaining_cases : Math.max(0, ordered - received));
-    return `<tr>
-      <td class="mono"><b>${esc(r.roshen_id || r.item_code)}</b></td>
-      <td>${esc((r.description || '').slice(0, 44))}</td>
-      <td class="num">${qty(ordered)}</td>
-      <td class="num">${qty(r.delivered_cases)}</td>
-      <td class="num"><b>${qty(received)}</b></td>
-      <td class="num" style="color:${remaining > 0 ? 'var(--text-primary)' : '#2FB344'}">${qty(remaining)}</td>
-      <td style="min-width:120px">${bar(ordered, received)}</td>
-      <td>${Number(r.disputed_cases) > 0 ? `<span class="sc-badge closed">${qty(r.disputed_cases)} disputed</span>` : ''}</td></tr>`;
-  }).join('');
+  const lineChip = (st) => `<span class="sc-badge ${st === 'Completed' ? 'confirmed' : st === 'Partial' ? 'pi' : 'none'}">${esc(st)}</span>`;
+  const invChip = (st) => st === '—' ? '' : `<span class="sc-badge ${st === 'Matched' ? 'confirmed' : st === 'Disputed' ? 'closed' : st === 'Partially Matched' ? 'pi' : 'none'}">${esc(st)}</span>`;
+  const rows = visible.map((r) => `<tr class="sc-row-link" data-act="drill" data-id="${DASH_ROWS.indexOf(r)}">
+      <td class="mono"><b>${esc(r.item_code || '')}</b><div style="font-size:10.5px;color:var(--text-muted)">${esc(String(r.roshen_id || ''))}</div></td>
+      <td style="font-size:12px">${esc((r.description || '').slice(0, 36))}</td>
+      <td class="num">${qty(r.ordered_cases)}</td>
+      <td class="num">${qty(r.delivered_cases)}${Number(r.disputed_cases) > 0 ? `<div style="font-size:10px;color:#F76707">${qty(r.disputed_cases)} disputed</div>` : ''}</td>
+      <td class="num"><b>${qty(r.received_cases)}</b></td>
+      <td class="num" style="color:${Number(r.remaining_cases) > 0 ? 'var(--text-primary)' : '#2FB344'}"><b>${qty(r.remaining_cases)}</b></td>
+      <td style="min-width:100px">${bar(r.pct)}</td>
+      <td class="num">${r.dn_count || '—'}</td>
+      <td style="font-size:11.5px">${r.last_delivery_at ? esc(String(r.last_delivery_at).slice(0, 10)) : '—'}
+        ${r.expected_arrival ? `<div style="font-size:10px;color:var(--text-muted)">next ETA ${esc(String(r.expected_arrival).slice(0, 16).replace('T', ' '))}</div>` : ''}</td>
+      <td>${lineChip(r.line_status)} ${invChip(r.invoice_status)}${r.shipment_status !== '—' && r.shipment_status !== 'Received' ? ' ' + statusBadge(r.shipment_status) : ''}</td></tr>`).join('');
   el.innerHTML = `<div class="sc-card">
     <div class="sc-card-h"><h3>📦 Receiving Progress</h3><div class="sc-spacer"></div>
-      <span style="font-size:12px;color:var(--text-secondary)">Ordered <b>${qty(s.ordered)}</b> · Received <b>${qty(s.received)}</b> · Remaining <b>${qty(s.remaining)}</b> · ${pct}% received</span></div>
-    ${tableWrap(`<table class="sc-table"><thead><tr><th>Roshen</th><th>Item</th><th class="num">Ordered</th><th class="num">Delivered</th><th class="num">Received</th><th class="num">Remaining</th><th>Progress</th><th></th></tr></thead><tbody>${rows}</tbody></table>`)}
+      <span style="font-size:12.5px;color:var(--text-secondary)">Total Ordered <b>${qty(s.ordered)}</b> · Total Received <b>${qty(s.received)}</b> · Remaining <b>${qty(s.remaining)}</b> · Overall <b>${pct}%</b> · ${orderBadge(ED.header.status)}</span></div>
+    <div style="display:flex;align-items:center;gap:14px;margin:0 0 8px">
+      <p style="font-size:11.5px;color:var(--text-muted);margin:0;flex:1">Live per item — click a line for its delivery notes, receipts and batches. The PI closes automatically when every ordered quantity is received.</p>
+      ${completedN > 0 ? `<label style="font-size:11.5px;color:var(--text-secondary);display:flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap">
+        <input type="checkbox" data-el="showdone" ${DASH_SHOW_ALL ? 'checked' : ''}> show ${completedN} completed item(s)</label>` : ''}</div>
+    ${tableWrap(`<table class="sc-table"><thead><tr><th>Item Code / Roshen</th><th>Description</th><th class="num">Ordered</th><th class="num">Delivered</th><th class="num">Received</th><th class="num">Remaining</th><th>% Complete</th><th class="num">DNs</th><th>Last Delivery</th><th>Status</th></tr></thead><tbody>${rows ||
+      '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:16px">All items completely received 🎉</td></tr>'}</tbody></table>`)}
   </div>`;
+  const toggle = el.querySelector('[data-el="showdone"]');
+  if (toggle) toggle.addEventListener('change', () => { DASH_SHOW_ALL = toggle.checked; paintDashboard(el, dash); });
+}
+
+function openLineDrill(r) {
+  const d = r.drill || { dns: [], grs: [], batches: [] };
+  const sec = (title, inner) => `<div class="sc-card-h" style="margin-top:12px"><h3>${title}</h3></div>${inner}`;
+  const none = '<p style="font-size:12px;color:var(--text-muted);margin:0">None yet.</p>';
+  modal(`${esc(r.roshen_id || r.item_code)} · receiving detail`, `
+    <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;margin-bottom:4px">
+      <div>Ordered <b>${qty(r.ordered_cases)}</b></div><div>Received <b>${qty(r.received_cases)}</b></div>
+      <div>Remaining <b>${qty(r.remaining_cases)}</b></div><div><b>${r.pct}%</b> received</div></div>
+    ${sec('🚚 Delivery Notes (' + d.dns.length + ')', d.dns.length ? `<table class="sc-table" style="min-width:0"><tbody>${d.dns.map((x) => `<tr>
+      <td class="mono"><b>${esc(x.dn_number)}</b></td><td>${esc(x.dn_date || '—')}</td>
+      <td>${statusBadge(x.status)}</td>
+      <td style="font-size:11px;color:var(--text-muted)">${x.expected_delivery_at ? 'ETA ' + esc(String(x.expected_delivery_at).slice(0, 16).replace('T', ' ')) : ''}</td>
+      <td class="num"><b>${qty(x.cases)}</b> ctn</td></tr>`).join('')}</tbody></table>` : none)}
+    ${sec('📦 Goods Receipts (' + d.grs.length + ')', d.grs.length ? `<table class="sc-table" style="min-width:0"><tbody>${d.grs.map((x) => `<tr>
+      <td class="mono"><b>${esc(x.grn_number)}</b></td><td>${esc((x.released_at || x.receipt_date || '').slice(0, 10))}</td>
+      <td>${statusBadge(x.status)}</td><td>${esc(x.warehouse || '—')}</td>
+      <td class="num"><b>${qty(x.cases)}</b> received</td></tr>`).join('')}</tbody></table>` : none)}
+    ${sec('🔖 Received batches (' + d.batches.length + ')', d.batches.length ? `<table class="sc-table" style="min-width:0"><thead><tr><th>Batch</th><th>Expiry</th><th class="num">Received</th><th class="num">On hand</th><th>QC</th><th>GRN</th></tr></thead><tbody>${d.batches.map((x) => `<tr>
+      <td class="mono">${x.batch_id ? '#' + x.batch_id + ' · ' : ''}${esc(x.batch_no || '—')}</td>
+      <td>${esc(x.expiry_date || '—')}</td>
+      <td class="num">${qty(x.received_cases)}</td>
+      <td class="num">${x.current_cases == null ? '—' : qty(x.current_cases)}</td>
+      <td><span class="sc-badge ${x.qc_result === 'Released' ? 'confirmed' : 'closed'}">${esc(x.qc_result)}</span>${x.hold_status === 'on_hold' ? ' <span class="sc-badge closed">HOLD</span>' : ''}</td>
+      <td class="mono" style="font-size:11px">${esc(x.grn_number || '')}</td></tr>`).join('')}</tbody></table>` : none)}`,
+  [{ label: 'Close', cls: 'ghost' }]);
 }
 
 function renderActions() {
@@ -262,6 +307,7 @@ function confirmApprove() {
 const ACTIONS = {
   back: () => CTX.navigate('order-history'),
   importxl: () => CTX.navigate('import-order'),
+  drill: (d) => { const r = DASH_ROWS[+d.id]; if (r) openLineDrill(r); },
   unlock: () => { if (ED.header.status === ORDER_STATUS.DRAFT) { ED.readonly = false; paint(); } },
   save: () => save(false),
   approve: () => save(true),
