@@ -146,13 +146,24 @@ export async function listExceptions(orderId) {
 export async function releaseGoodsReceipt(grId, opts = {}) {
   const c = getClient();
   const gr = await getGoodsReceipt(grId);
-  if (['Released', 'Partially Released', 'Rejected'].includes(gr.status)) {
+  if (['Released', 'Partially Released', 'Rejected', 'Releasing'].includes(gr.status)) {
     return { status: gr.status, alreadyReleased: true,
       released: gr.batches.filter((b) => b.qc_result === 'Released').length,
       rejected: gr.batches.filter((b) => b.qc_result === 'Rejected').length, total: gr.batches.length };
   }
   const pending = gr.batches.filter((b) => b.qc_result === 'Pending QC');
   if (pending.length) throw new Error(`${pending.length} batch(es) still Pending QC — decide Release/Reject for every batch before releasing.`);
+
+  // Invariant: an ACCEPTED (Released) batch must carry a received quantity.
+  // Releasing accepted goods with 0 received would post nothing to inventory
+  // and silently zero the PO's Received figures — reject the batch instead.
+  const zeroReleased = gr.batches.filter((b) =>
+    b.qc_result === 'Released' && Number(b.delivered_cases || 0) > 0 && Number(b.received_cases || 0) <= 0);
+  if (zeroReleased.length) {
+    throw new Error(`${zeroReleased.length} accepted batch(es) have no received quantity ` +
+      `(${zeroReleased.slice(0, 3).map((b) => b.roshen_id || b.item_code).join(', ')}${zeroReleased.length > 3 ? '…' : ''}). ` +
+      'Enter the received cases or reject the batch — a receipt cannot post 0 received for accepted goods.');
+  }
 
   // Over-delivery prevention: total received per line (already POSTED to
   // inventory + this receipt) must not exceed the approved PO-revision quantity.
@@ -204,21 +215,44 @@ export async function releaseGoodsReceipt(grId, opts = {}) {
       throw new Error(`Shelf-life rule: ${blockedBatches.length} batch(es) are below the minimum remaining shelf life (${blockedBatches.map((b) => (b.batch_no || b.description || '#' + b.id)).join(', ')}). Record an approved "Accept Exception" for each, or reject them.`);
     }
   }
+  // ATOMIC CLAIM: exactly one caller may move Pending QC → Releasing. A
+  // parallel release (double click, second tab, auto-release racing a manual
+  // one) finds zero rows updated and backs off — this receipt once DOUBLE-
+  // POSTED its inventory because two releases ran side by side.
+  {
+    const { data: claimed, error: eClaim } = await c.from('goods_receipts')
+      .update({ status: 'Releasing', updated_at: new Date().toISOString() })
+      .eq('id', grId).eq('status', 'Pending QC').select('id');
+    if (eClaim) throw eClaim;
+    if (!claimed || !claimed.length) {
+      return { status: 'Releasing', alreadyReleased: true, inProgress: true,
+        released: 0, rejected: 0, total: gr.batches.length };
+    }
+  }
+
+  try {
   for (const b of released) {
     const key = keyOf(b.roshen_id, b.item_code);
     const cost = costByKey[key] != null ? costByKey[key] : null;
     // Goods Receipt does NOT update inventory — it posts a transaction through
     // the Inventory Transaction Engine (the only component that changes stock).
-    await postTransaction({
-      type: 'GR', qty: Number(b.received_cases || 0),
-      skuId: b.sku_id || null, batchId: b.batch_id || null, warehouse,
-      unitCost: cost, referenceModule: 'goods-receipt', reference: gr.grn_number, actor: opts.releasedBy,
-      context: {
-        orderId: gr.order_id, grId: gr.id, grBatchId: b.id, dnBatchId: b.dn_batch_id, dnId: gr.delivery_note_id,
-        itemCode: b.item_code, roshenId: b.roshen_id, description: b.description,
-        batchNo: b.batch_no, manufacturingDate: b.manufacturing_date, expiryDate: b.expiry_date,
-      },
-    });
+    try {
+      await postTransaction({
+        type: 'GR', qty: Number(b.received_cases || 0),
+        skuId: b.sku_id || null, batchId: b.batch_id || null, warehouse,
+        unitCost: cost, referenceModule: 'goods-receipt', reference: gr.grn_number, actor: opts.releasedBy,
+        context: {
+          orderId: gr.order_id, grId: gr.id, grBatchId: b.id, dnBatchId: b.dn_batch_id, dnId: gr.delivery_note_id,
+          itemCode: b.item_code, roshenId: b.roshen_id, description: b.description,
+          batchNo: b.batch_no, manufacturingDate: b.manufacturing_date, expiryDate: b.expiry_date,
+        },
+      });
+    } catch (e) {
+      // unique guard: each GR batch posts to inventory exactly ONCE — a batch
+      // already posted by an interrupted earlier attempt is skipped, never
+      // double-counted
+      if (!e || e.code !== '23505') throw e;
+    }
     if (b.dn_batch_id) await c.from('delivery_note_batches').update({ qc_status: 'Released' }).eq('id', b.dn_batch_id);
     if (b.batch_id) {
       await c.from('batch_master').update({ released_at: new Date().toISOString(), warehouse, updated_at: new Date().toISOString() }).eq('id', b.batch_id);
@@ -244,6 +278,14 @@ export async function releaseGoodsReceipt(grId, opts = {}) {
   }).eq('id', gr.delivery_note_id);
   await syncOrderReceivingStatus(gr.order_id);
   return { status, released: rel, rejected: rej, total };
+  } catch (e) {
+    // posting failed midway — release the claim so the receipt is not stuck
+    // in 'Releasing'. The per-batch unique guard on inventory_movements
+    // (one GR posting per gr_batch) makes a retry safe: batches that already
+    // posted are skipped by the database, never double-counted.
+    try { await c.from('goods_receipts').update({ status: 'Pending QC', updated_at: new Date().toISOString() }).eq('id', grId).eq('status', 'Releasing'); } catch (x) { /* best-effort */ }
+    throw e;
+  }
 }
 
 // Automatic receiving — the business rule: once every batch is approved
@@ -259,6 +301,7 @@ export async function autoReleaseIfClean(grId, opts = {}) {
   const c = getClient();
   const gr = await getGoodsReceipt(grId);
   if (['Released', 'Partially Released', 'Rejected'].includes(gr.status)) return { autoReleased: true, already: true };
+  if (gr.status === 'Releasing') return { autoReleased: false, reason: 'release already in progress' };
 
   const skuIds = [...new Set(gr.batches.map((b) => b.sku_id).filter(Boolean))];
   const { data: skus } = skuIds.length ? await c.from('sku_master')
