@@ -1,18 +1,25 @@
-// Goods Receiving — list of receipts and the batch-level QC screen. Warehouse
-// staff receive each batch individually (Released / Rejected); inventory only
-// increases for released batches, via the goods-receiving service. Below-minimum
-// shelf-life batches prompt an audited Accept-Exception / Reject decision.
-import { mount, delegate, wire, qsa } from '../../utils/dom.js';
+// Warehouse Receiving — list of receipts + the receiving screen.
+//
+// UX: healthy batches (shelf life ≥ the SKU minimum) are auto-accepted and
+// received in one click; the user only reviews the EXCEPTIONS (below-minimum
+// batches) and decides Accept Exception (with reason + approver, audited) or
+// Reject. Received = Delivered by default ("Full Delivery"); unticking allows
+// partial quantities. UI ONLY — every decision still flows through the same
+// services (setBatchQc / recordShelfLifeException / releaseGoodsReceipt):
+// shelf-life math, validation gates, audit and inventory posting unchanged.
+import { mount, delegate, wire, qsa, qs } from '../../utils/dom.js';
 import { esc, qty, today } from '../../utils/format.js';
 import { loading, emptyState, tableWrap } from '../../components/table/table.js';
 import { toast } from '../../components/notifications/toast.js';
-import { statusBadge, shelfChip } from '../../components/table/badges.js';
+import { statusBadge } from '../../components/table/badges.js';
 import { shelfLife } from '../../models/shelf-life.js';
 import {
   listGoodsReceipts, getGoodsReceipt, setBatchQc, releaseGoodsReceipt, recordShelfLifeException,
 } from '../../services/goods-receiving/goods-receiving.service.js';
 import { priceIndex } from '../../services/fulfillment/fulfillment.service.js';
 import { listSkus, indexByRoshen, indexByCode } from '../../services/sku/sku.service.js';
+
+const C = { green: '#2FB344', yellow: '#F2C037', red: '#E03131' };
 
 export async function render(root, ctx) {
   const view = (ctx.params && ctx.params.view) || 'list';
@@ -32,12 +39,12 @@ async function renderList(root, ctx) {
     <td>${esc(g.warehouse || '')}</td>
     <td>${esc(g.receipt_date || '')}</td>
     <td>${statusBadge(g.status)}</td></tr>`).join('')
-    || '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:22px">No goods receipts yet. Create one from a matched delivery note.</td></tr>';
+    || '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:22px">No warehouse receipts yet. Confirm a delivery from its Delivery Note.</td></tr>';
   mount(root, `
     <div class="sc-card-h"><h3>🏬 Warehouse Receiving</h3><span class="sc-badge none" style="margin-left:8px">${grs.length}</span>
       <div class="sc-spacer"></div><button class="sc-btn sm ghost" data-act="dn">Delivery Notes →</button></div>
-    <div class="sc-card"><p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">Check and receive each batch. Only released batches enter the warehouse.</p>
-      ${tableWrap(`<table class="sc-table"><thead><tr><th>GRN #</th><th>DN</th><th>PO</th><th>Warehouse</th><th>Date</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`)}</div>`);
+    <div class="sc-card"><p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">Healthy items are accepted automatically — you only review exceptions.</p>
+      ${tableWrap(`<table class="sc-table"><thead><tr><th>Receipt #</th><th>Delivery Note</th><th>PI</th><th>Warehouse</th><th>Date</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`)}</div>`);
   delegate(root, {
     dn: () => ctx.navigate('delivery-notes'),
     open: ({ id }) => ctx.navigate('goods-receiving', { view: 'detail', grId: id }),
@@ -45,7 +52,7 @@ async function renderList(root, ctx) {
 }
 
 async function renderDetail(root, ctx, grId) {
-  mount(root, loading('Loading goods receipt…'));
+  mount(root, loading('Loading warehouse receipt…'));
   let gr, skus, prices;
   try {
     gr = await getGoodsReceipt(grId);
@@ -54,129 +61,210 @@ async function renderDetail(root, ctx, grId) {
   } catch (e) { return mount(root, emptyState('⚠', e.message || String(e))); }
   const byRoshen = indexByRoshen(skus), byCode = indexByCode(skus);
   const skuFor = (b) => byRoshen[String(b.roshen_id || '').trim()] || byCode[String(b.item_code || '').trim()] || null;
-  const done = gr.status === 'Released' || gr.status === 'Partially Released' || gr.status === 'Rejected';
+  const done = ['Released', 'Partially Released', 'Rejected'].includes(gr.status);
 
-  const rows = gr.batches.map((b) => {
-    const sku = skuFor(b);
-    const sl = shelfLife(sku, { expiry_date: b.expiry_date, manufacturing_date: b.manufacturing_date }, today());
-    const sel = (v) => (b.qc_result === v ? 'selected' : '');
-    const ctrl = done
-      ? statusBadge(b.qc_result)
-      : `<select class="sc-select sm" data-qc="${b.id}"><option value="Pending QC" ${sel('Pending QC')}>Pending QC</option><option value="Released" ${sel('Released')}>Release</option><option value="Rejected" ${sel('Rejected')}>Reject</option></select>`;
-    const recv = done ? qty(b.received_cases)
-      : `<input class="sc-input sm num" data-recv="${b.id}" type="number" min="0" step="1" value="${esc(String(b.received_cases ?? b.delivered_cases))}" style="max-width:90px">`;
-    return `<tr${b.dn_batch_id ? '' : ''}>
+  // ---- screen state: one row per batch, healthy items auto-accepted ----
+  // decisions: 'accept' (healthy default) · 'accept-exception' · 'reject' · null (exception awaiting review)
+  const ROWS = gr.batches.map((b) => {
+    const sl = shelfLife(skuFor(b), { expiry_date: b.expiry_date, manufacturing_date: b.manufacturing_date }, today());
+    const belowMin = !!sl.belowMinimum;
+    return {
+      b, sl, belowMin,
+      decision: done ? null : (belowMin ? null : 'accept'),   // healthy → auto-accepted, no action needed
+      received: Number(b.received_cases != null ? b.received_cases : b.delivered_cases) || 0,
+    };
+  });
+  let FULL_DELIVERY = true;   // Received = Delivered for every line (default)
+
+  if (done) return paintDone();
+  paint();
+
+  // ================= completed receipt (read-only) =================
+  function paintDone() {
+    const rows = gr.batches.map((b) => `<tr>
       <td class="mono"><b>${esc(b.roshen_id || b.item_code)}</b><div style="font-size:11px;color:var(--text-muted)">${esc(b.description || '')}</div></td>
-      <td class="mono">${esc(b.batch_no || '—')}</td>
-      <td>${esc(b.expiry_date || '—')}</td>
-      <td>${shelfChip(sl)}${sl.belowMinimum ? '<div style="font-size:10.5px;color:#E03131;margin-top:2px">Shelf life below minimum</div>' : ''}</td>
-      <td class="num">${qty(b.delivered_cases)}</td>
-      <td class="num">${recv}</td>
-      <td>${ctrl}</td></tr>`;
-  }).join('');
-
-  const anyBelow = gr.batches.some((b) => { const sl = shelfLife(skuFor(b), { expiry_date: b.expiry_date, manufacturing_date: b.manufacturing_date }, today()); return sl.belowMinimum; });
-
-  mount(root, `
-    <div class="sc-card-h"><h3>🏬 ${esc(gr.grn_number || 'Warehouse Receipt')}</h3><div class="sc-spacer"></div>
-      ${statusBadge(gr.status)}<button class="sc-btn sm ghost" style="margin-left:10px" data-act="back">← Goods Receiving</button></div>
-    <div class="sc-card"><div class="sc-form-grid">
-      <div class="sc-field"><label>PO</label><input class="sc-input" readonly value="${esc((gr.order && gr.order.order_number) || '')}"></div>
-      <div class="sc-field"><label>Delivery Note</label><input class="sc-input" readonly value="${esc((gr.delivery_note && gr.delivery_note.dn_number) || '')}"></div>
-      <div class="sc-field"><label>Warehouse</label><input class="sc-input" readonly value="${esc(gr.warehouse || '—')}"></div>
-    </div></div>
-    ${anyBelow && !done ? '<div class="sc-card" style="border-left:3px solid #F76707"><b>⚠ Shelf-life exceptions</b><p style="font-size:12px;color:var(--text-secondary);margin:6px 0 0">One or more batches are below the SKU minimum remaining shelf life. Releasing such a batch records an <b>Accept Exception</b>; rejecting it records a <b>Reject Item</b>. Both are written to the audit log.</p></div>' : ''}
-    <div class="sc-card"><div class="sc-card-h"><h3>📦 Batches — receive individually</h3></div>
-      <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Item</th><th>Batch</th><th>Expiry</th><th>Remaining shelf life</th><th class="num">Delivered</th><th class="num">Received</th><th>QC decision</th></tr></thead><tbody>${rows}</tbody></table></div>
-    </div>
-    ${done ? `<div class="sc-card"><span class="sc-badge confirmed">Receipt ${esc(gr.status)}</span> — released batches have been posted to inventory.</div>`
-      : `<div class="sc-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-        <button class="sc-btn green" data-act="release">✅ Confirm &amp; Receive into Warehouse</button>
-        <span style="font-size:12px;color:var(--text-secondary)">Released batches post to inventory as movements; rejected batches do not. This updates the PO received balance.</span></div>`}`);
-
-  wire(root, { back: () => ctx.navigate('goods-receiving') });
-  if (!done) {
-    delegate(root, { release: () => releaseFlow() });
+      <td class="mono">${esc(b.batch_no || '—')}</td><td>${esc(b.expiry_date || '—')}</td>
+      <td class="num">${qty(b.delivered_cases)}</td><td class="num"><b>${qty(b.received_cases)}</b></td>
+      <td>${b.qc_result === 'Released' ? `<span style="color:${C.green};font-weight:700">✅ Accepted</span>` : `<span style="color:${C.red};font-weight:700">❌ Rejected</span>`}</td></tr>`).join('');
+    mount(root, `
+      <div class="sc-card-h"><h3>🏬 ${esc(gr.grn_number || 'Warehouse Receipt')}</h3><div class="sc-spacer"></div>
+        ${statusBadge(gr.status)}<button class="sc-btn sm ghost" style="margin-left:10px" data-act="back">← Warehouse Receiving</button></div>
+      <div class="sc-card"><span class="sc-badge confirmed">Receipt ${esc(gr.status)}</span> — accepted items are in the warehouse; the PI totals are updated.</div>
+      <div class="sc-card">${tableWrap(`<table class="sc-table"><thead><tr><th>Item</th><th>Batch</th><th>Expiry</th><th class="num">Delivered</th><th class="num">Received</th><th>Decision</th></tr></thead><tbody>${rows}</tbody></table>`)}</div>`);
+    wire(root, { back: () => ctx.navigate('goods-receiving') });
   }
 
-  async function releaseFlow() {
-    // read edits
-    const edits = {};
-    qsa('[data-qc]', root).forEach((s) => { edits[s.dataset.qc] = edits[s.dataset.qc] || {}; edits[s.dataset.qc].qc_result = s.value; });
-    qsa('[data-recv]', root).forEach((i) => { edits[i.dataset.recv] = edits[i.dataset.recv] || {}; edits[i.dataset.recv].received = Number(i.value || 0); });
-
-    if (!Object.values(edits).some((e) => e.qc_result === 'Released')) {
-      if (!confirm('No batch is marked Released — nothing will be added to inventory. Continue?')) return;
-    }
-    const decisionOf = (b) => (edits[b.id] && edits[b.id].qc_result) || b.qc_result || 'Pending QC';
-
-    // Exception workflow: receiving a batch below its SKU's required shelf life
-    // cannot continue normally — the user must enter the Exception Reason and
-    // who approved it. Everything is stored in the audit trail.
-    const needApproval = gr.batches.filter((b) => {
-      if (decisionOf(b) !== 'Released') return false;
-      const sl = shelfLife(skuFor(b), { expiry_date: b.expiry_date, manufacturing_date: b.manufacturing_date }, today());
-      return sl.belowMinimum;
-    });
-    if (needApproval.length) return openExceptionModal(needApproval, edits, {});
-    doRelease(edits, null);
+  // ================= active receiving =================
+  function summary() {
+    const excs = ROWS.filter((r) => r.belowMin);
+    return {
+      lines: ROWS.length,
+      accepted: ROWS.filter((r) => r.decision === 'accept' || r.decision === 'accept-exception').length,
+      exceptions: excs.length,
+      unresolved: excs.filter((r) => !r.decision).length,
+      rejected: ROWS.filter((r) => r.decision === 'reject').length,
+      delivered: ROWS.reduce((a, r) => a + Number(r.b.delivered_cases || 0), 0),
+      received: ROWS.reduce((a, r) => a + (r.decision === 'reject' ? 0 : r.received), 0),
+    };
   }
 
-  function openExceptionModal(batches, edits, preset) {
+  function paint() {
+    const s = summary();
+    const excRows = ROWS.filter((r) => r.belowMin);
+    const healthy = ROWS.filter((r) => !r.belowMin);
+    const anyAcceptedException = excRows.some((r) => r.decision === 'accept-exception');
     const nowLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    const list = batches.map((b) => {
-      const sl = shelfLife(skuFor(b), { expiry_date: b.expiry_date, manufacturing_date: b.manufacturing_date }, today());
-      return `<tr><td class="mono">${esc(b.roshen_id || b.item_code)}</td><td class="mono">${esc(b.batch_no || '—')}</td>
-        <td>${esc(b.expiry_date || '—')}</td>
-        <td class="num" style="color:#E03131"><b>${sl.remainingPct != null ? sl.remainingPct + '%' : 'n/a'}</b></td>
-        <td class="num">${sl.minPct != null ? sl.minPct + '%' : '—'}</td></tr>`;
+
+    const tile = (label, value, color) => `<div class="erp-kpi"><div class="k-lbl">${label}</div>
+      <div class="k-val" ${color ? `style="color:${color}"` : ''}>${value}</div></div>`;
+
+    const healthyRows = healthy.map((r) => {
+      const i = ROWS.indexOf(r);
+      return `<tr style="background:rgba(47,179,68,.04)">
+        <td class="mono"><b>${esc(r.b.roshen_id || r.b.item_code)}</b><div style="font-size:11px;color:var(--text-muted)">${esc((r.b.description || '').slice(0, 44))}</div></td>
+        <td class="mono">${esc(r.b.batch_no || '—')}</td>
+        <td>${esc(r.b.expiry_date || '—')}</td>
+        <td class="num">${r.sl.remainingPct != null ? `<b style="color:${C.green}">${r.sl.remainingPct}%</b>` : '—'}</td>
+        <td class="num">${qty(r.b.delivered_cases)}</td>
+        <td class="num">${FULL_DELIVERY ? `<b>${qty(r.received)}</b>` : `<input class="sc-input sm num" data-recv="${i}" type="number" min="0" step="1" value="${esc(String(r.received))}" style="max-width:90px">`}</td>
+        <td>${r.decision === 'reject'
+          ? `<span style="color:${C.red};font-weight:700">❌ Rejected</span> <button class="sc-btn sm ghost" data-act="unreject" data-id="${i}">undo</button>`
+          : `<span style="color:${C.green};font-weight:700">✅ Accepted</span> <button class="sc-btn sm ghost" data-act="rejecthealthy" data-id="${i}" title="e.g. damaged in transit">reject</button>`}</td></tr>`;
     }).join('');
-    modal('🟡 Shelf-life exception — approval required', `
-      <p style="font-size:12.5px;color:var(--text-secondary);margin-top:0">${batches.length} batch(es) are below the SKU's required remaining shelf life. Receiving cannot continue normally — record who approved the exception and why. This is stored permanently in the audit trail.</p>
-      <div class="sc-table-wrap" style="max-height:180px;overflow:auto"><table class="sc-table" style="min-width:0"><thead><tr><th>Item</th><th>Batch</th><th>Expiry</th><th class="num">Remaining %</th><th class="num">Required %</th></tr></thead><tbody>${list}</tbody></table></div>
-      <div class="sc-form-grid" style="margin-top:12px">
-        <div class="sc-field"><label>Exception Reason *</label><input id="ex-reason" class="sc-input" placeholder="e.g. urgent stock need — approved for fast rotation" value="${esc(preset.reason || '')}"></div>
-        <div class="sc-field"><label>Approved By *</label><input id="ex-by" class="sc-input" placeholder="Name of the approver" value="${esc(preset.by || '')}"></div>
-        <div class="sc-field"><label>Approval Date &amp; Time</label><input id="ex-at" class="sc-input" type="datetime-local" value="${esc(preset.at || nowLocal)}"></div>
-      </div>`, [
-      { label: '✅ Approve Exception & Receive', cls: 'green', onClick: () => {
-          const v = (id) => ((document.getElementById(id) || {}).value || '').trim();
-          const entered = { reason: v('ex-reason'), by: v('ex-by'), at: v('ex-at') };
-          if (!entered.reason) { toast('Enter the exception reason', 'err'); return openExceptionModal(batches, edits, entered); }
-          if (!entered.by) { toast('Enter who approved the exception', 'err'); return openExceptionModal(batches, edits, entered); }
-          doRelease(edits, entered);
-        } },
-      { label: 'Back — change QC decisions', cls: 'ghost' },
-    ]);
+
+    const excTable = excRows.map((r) => {
+      const i = ROWS.indexOf(r);
+      const diff = r.sl.remainingPct != null && r.sl.minPct != null ? +(r.sl.minPct - r.sl.remainingPct).toFixed(1) : null;
+      const rowColor = r.decision === 'reject' ? 'rgba(224,49,49,.05)' : r.decision === 'accept-exception' ? 'rgba(47,179,68,.05)' : 'rgba(242,192,55,.06)';
+      return `<tr style="background:${rowColor}">
+        <td class="mono"><b>${esc(r.b.roshen_id || r.b.item_code)}</b><div style="font-size:11px;color:var(--text-muted)">${esc((r.b.description || '').slice(0, 40))}</div></td>
+        <td class="mono">${esc(r.b.batch_no || '—')}</td>
+        <td>${esc(r.b.expiry_date || '—')}</td>
+        <td class="num"><b style="color:${C.red}">${r.sl.remainingPct != null ? r.sl.remainingPct + '%' : 'n/a'}</b></td>
+        <td class="num">${r.sl.minPct != null ? r.sl.minPct + '%' : '—'}</td>
+        <td class="num" style="color:${C.red}">${diff != null ? '−' + diff + '%' : '—'}</td>
+        <td class="num">${FULL_DELIVERY ? qty(r.received) : `<input class="sc-input sm num" data-recv="${i}" type="number" min="0" step="1" value="${esc(String(r.received))}" style="max-width:84px">`}</td>
+        <td style="white-space:nowrap">
+          <button class="sc-btn sm ${r.decision === 'accept-exception' ? 'green' : 'ghost'}" data-act="exaccept" data-id="${i}">🟡 Accept Exception</button>
+          <button class="sc-btn sm ${r.decision === 'reject' ? 'primary' : 'ghost'}" data-act="exreject" data-id="${i}">❌ Reject</button>
+        </td></tr>`;
+    }).join('');
+
+    const canConfirm = s.unresolved === 0;
+    mount(root, `
+      <div class="sc-card-h"><h3>🏬 ${esc(gr.grn_number || 'Warehouse Receipt')}</h3><div class="sc-spacer"></div>
+        <span style="font-size:12px;color:var(--text-secondary)">PI <b class="mono">${esc((gr.order && gr.order.order_number) || '')}</b> · DN <b class="mono">${esc((gr.delivery_note && gr.delivery_note.dn_number) || '')}</b> · ${esc(gr.warehouse || '—')}</span>
+        <button class="sc-btn sm ghost" style="margin-left:10px" data-act="back">← Warehouse Receiving</button></div>
+
+      <div class="erp-kpi-row" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr))">
+        ${tile('Total Lines', s.lines)}
+        ${tile('Accepted', s.accepted, C.green)}
+        ${tile('Exceptions', s.exceptions ? s.unresolved + ' to review' : 0, s.unresolved ? C.yellow : C.green)}
+        ${tile('Rejected', s.rejected, s.rejected ? C.red : undefined)}
+        ${tile('Total Delivered', qty(s.delivered))}
+        ${tile('Total Received', qty(s.received), C.green)}
+      </div>
+
+      <div class="sc-card"><div class="sc-card-h">
+        <h3 style="color:${C.green}">✅ Healthy Items (${healthy.length})</h3><div class="sc-spacer"></div>
+        <label style="font-size:12.5px;color:var(--text-secondary);display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" data-el="fulldelivery" ${FULL_DELIVERY ? 'checked' : ''}> Full Delivery — Received = Delivered</label></div>
+        <p style="font-size:12px;color:var(--text-muted);margin:0 0 8px">These batches meet the required shelf life and are accepted automatically — nothing to do here.${FULL_DELIVERY ? '' : ' Adjust the received quantities for partial deliveries.'}</p>
+        ${healthy.length ? tableWrap(`<table class="sc-table"><thead><tr><th>Item</th><th>Batch</th><th>Expiry</th><th class="num">Shelf Life</th><th class="num">Delivered</th><th class="num">Received</th><th>Decision</th></tr></thead><tbody>${healthyRows}</tbody></table>`)
+          : '<p style="font-size:12.5px;color:var(--text-muted);margin:0">No healthy batches on this delivery.</p>'}
+      </div>
+
+      ${excRows.length ? `<div class="sc-card" id="exceptions" style="border-left:3px solid ${C.yellow}">
+        <div class="sc-card-h"><h3 style="color:${C.yellow}">🟡 Exceptions — shelf life below minimum (${excRows.length})</h3><div class="sc-spacer"></div>
+          <span style="font-size:12px;color:var(--text-secondary)">${s.unresolved ? `<b>${s.unresolved}</b> awaiting your decision` : '<b style="color:' + C.green + '">all resolved</b>'}</span></div>
+        ${tableWrap(`<table class="sc-table"><thead><tr><th>SKU</th><th>Batch</th><th>Expiry Date</th><th class="num">Remaining %</th><th class="num">Required %</th><th class="num">Difference</th><th class="num">Received</th><th>Decision</th></tr></thead><tbody>${excTable}</tbody></table>`)}
+        ${anyAcceptedException ? `<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-light)">
+          <p style="font-size:12px;color:var(--text-secondary);margin:0 0 8px"><b>Exception approval</b> — required for the accepted exception(s); stored permanently in the audit trail.</p>
+          <div class="sc-form-grid">
+            <div class="sc-field"><label>Exception Reason *</label><input data-el="ex-reason" class="sc-input" placeholder="e.g. urgent stock need — fast rotation" value="${esc(paint._reason || '')}"></div>
+            <div class="sc-field"><label>Approved By *</label><input data-el="ex-by" class="sc-input" placeholder="Name of the approver" value="${esc(paint._by || '')}"></div>
+            <div class="sc-field"><label>Approval Date &amp; Time</label><input data-el="ex-at" class="sc-input" type="datetime-local" value="${esc(paint._at || nowLocal)}"></div>
+          </div></div>` : ''}
+      </div>` : ''}
+
+      <div class="sc-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        ${excRows.length === 0
+          ? `<button class="sc-btn green" data-act="confirm">✅ Receive All Healthy Items</button>`
+          : `${s.unresolved ? `<button class="sc-btn" style="background:${C.yellow};color:#1a1a1a" data-act="gotoexc">🟡 Review Exceptions (${s.unresolved})</button>` : ''}
+             <button class="sc-btn green" data-act="confirm" ${canConfirm ? '' : 'disabled'}>✔ Confirm Warehouse Receipt</button>`}
+        <span style="font-size:12px;color:var(--text-secondary)">${canConfirm
+          ? 'Accepted items post to the warehouse and update the PI automatically.'
+          : 'Resolve every exception to enable the confirmation.'}</span>
+      </div>`);
+
+    // ---- interactions (state only — no service calls until confirm) ----
+    const keepApproval = () => {
+      const v = (sel) => { const n = qs(`[data-el="${sel}"]`, root); return n ? n.value : ''; };
+      paint._reason = v('ex-reason'); paint._by = v('ex-by'); paint._at = v('ex-at');
+    };
+    const full = qs('[data-el="fulldelivery"]', root);
+    if (full) full.addEventListener('change', () => {
+      keepApproval();
+      FULL_DELIVERY = full.checked;
+      if (FULL_DELIVERY) ROWS.forEach((r) => { r.received = Number(r.b.delivered_cases || 0); });
+      paint();
+    });
+    qsa('[data-recv]', root).forEach((inp) => inp.addEventListener('change', () => {
+      const r = ROWS[+inp.dataset.recv];
+      r.received = Math.max(0, Number(inp.value || 0));
+      keepApproval(); paint();
+    }));
+    wire(root, {
+      back: () => ctx.navigate('goods-receiving'),
+      gotoexc: () => { const el = qs('#exceptions', root); if (el) el.scrollIntoView({ behavior: 'smooth' }); },
+      exaccept: (d) => { keepApproval(); ROWS[+d.id].decision = 'accept-exception'; paint(); },
+      exreject: (d) => { keepApproval(); ROWS[+d.id].decision = 'reject'; paint(); },
+      rejecthealthy: (d) => { keepApproval(); ROWS[+d.id].decision = 'reject'; paint(); },
+      unreject: (d) => { keepApproval(); ROWS[+d.id].decision = 'accept'; paint(); },
+      confirm: () => confirmReceipt(),
+    });
   }
 
-  async function doRelease(edits, approval) {
+  // ---- confirm: identical service flow as before (UI is the only change) ----
+  let saving = false;
+  async function confirmReceipt() {
+    if (saving) return;
+    const s = summary();
+    if (s.unresolved) return toast('Resolve every exception first', 'err');
+    const excAccepted = ROWS.filter((r) => r.belowMin && r.decision === 'accept-exception');
+    const v = (sel) => { const n = qs(`[data-el="${sel}"]`, root); return n ? n.value.trim() : ''; };
+    const approval = { reason: v('ex-reason'), by: v('ex-by'), at: v('ex-at') };
+    if (excAccepted.length) {
+      if (!approval.reason) return toast('Enter the exception reason', 'err');
+      if (!approval.by) return toast('Enter who approved the exception', 'err');
+    }
+    if (s.received === 0 && !confirm('No quantity will be received into the warehouse. Continue?')) return;
+    saving = true;
+    qsa('button', root).forEach((b) => (b.disabled = true));
     try {
-      for (const b of gr.batches) {
-        const e = edits[b.id] || {};
-        const decision = e.qc_result || b.qc_result || 'Pending QC';
-        const received = decision === 'Released' ? (e.received != null ? e.received : b.delivered_cases) : 0;
-        const rejected = decision === 'Rejected' ? b.delivered_cases : 0;
-        await setBatchQc(b.id, { qc_result: decision, received_cases: received, rejected_cases: rejected });
-
-        // audit below-minimum decisions — accepted ones carry the entered
-        // exception reason + approver; rejections are recorded as such
-        const sl = shelfLife(skuFor(b), { expiry_date: b.expiry_date, manufacturing_date: b.manufacturing_date }, today());
-        if (sl.belowMinimum && (decision === 'Released' || decision === 'Rejected')) {
+      for (const r of ROWS) {
+        const decision = r.decision === 'reject' ? 'Rejected' : 'Released';
+        const received = decision === 'Released' ? r.received : 0;
+        await setBatchQc(r.b.id, { qc_result: decision, received_cases: received, rejected_cases: decision === 'Rejected' ? r.b.delivered_cases : 0 });
+        if (r.belowMin) {
           await recordShelfLifeException({
-            order_id: gr.order_id, dn_id: gr.delivery_note_id, dn_batch_id: b.dn_batch_id,
-            item_code: b.item_code, roshen_id: b.roshen_id, batch_no: b.batch_no, expiry_date: b.expiry_date,
-            required_pct: sl.minPct, remaining_pct: sl.remainingPct,
+            order_id: gr.order_id, dn_id: gr.delivery_note_id, dn_batch_id: r.b.dn_batch_id,
+            item_code: r.b.item_code, roshen_id: r.b.roshen_id, batch_no: r.b.batch_no, expiry_date: r.b.expiry_date,
+            required_pct: r.sl.minPct, remaining_pct: r.sl.remainingPct,
             decision: decision === 'Released' ? 'Accept Exception' : 'Reject Item',
-            reason: decision === 'Released' ? (approval && approval.reason) : 'Rejected at warehouse receiving',
-            decided_by: decision === 'Released' ? (approval && approval.by) : 'goods-receiving',
-            decided_at: decision === 'Released' && approval && approval.at ? new Date(approval.at).toISOString() : undefined,
+            reason: decision === 'Released' ? approval.reason : 'Rejected at warehouse receiving',
+            decided_by: decision === 'Released' ? approval.by : 'goods-receiving',
+            decided_at: decision === 'Released' && approval.at ? new Date(approval.at).toISOString() : undefined,
           });
         }
       }
-      const res = await releaseGoodsReceipt(gr.id, { warehouse: gr.warehouse, costByKey: prices, releasedBy: (approval && approval.by) || 'goods-receiving' });
-      toast(`Receipt ${res.status} — ${res.released} released, ${res.rejected} rejected`, 'ok');
+      const res = await releaseGoodsReceipt(gr.id, { warehouse: gr.warehouse, costByKey: prices, releasedBy: approval.by || 'goods-receiving' });
+      toast(`Receipt ${res.status} — ${res.released} accepted, ${res.rejected} rejected`, 'ok');
       ctx.navigate('goods-receiving', { view: 'detail', grId: gr.id });
-    } catch (e) { toast('Release failed: ' + (e.message || e), 'err'); }
+    } catch (e) {
+      saving = false;
+      qsa('button', root).forEach((b) => (b.disabled = false));
+      toast('Receiving failed: ' + (e.message || e), 'err');
+    }
   }
 }
