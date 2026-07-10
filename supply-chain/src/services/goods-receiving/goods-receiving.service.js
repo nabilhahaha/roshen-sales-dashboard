@@ -7,8 +7,12 @@
 // on-hand balance from those movements. Below-minimum shelf-life accept/reject
 // decisions are written to the audit log.
 import { getClient, one } from '../supabase/client.js';
-import { lineKey as keyOf } from '../../utils/format.js';
+import { lineKey as keyOf, normRoshen } from '../../utils/format.js';
 import { deliveryNoteHasMatchedInvoice } from '../supplier-invoice/supplier-invoice.service.js';
+import { createBatchesForGoodsReceipt, setBatchQcStatus, logBatchAudit } from '../batch/batch.service.js';
+import { postTransaction } from '../inventory/inventory-transaction.service.js';
+import { shelfLife } from '../../models/shelf-life.js';
+import { today } from '../../utils/format.js';
 
 export async function listGoodsReceipts(orderId) {
   let q = getClient().from('goods_receipts')
@@ -85,21 +89,31 @@ export async function createGoodsReceiptFromDeliveryNote(deliveryNoteId, opts = 
     });
   });
   if (batches.length) {
-    const { error: e2 } = await c.from('goods_receipt_batches').insert(batches);
+    const { data: inserted, error: e2 } = await c.from('goods_receipt_batches').insert(batches).select();
     if (e2) throw e2;
+    // Batch Master: every received physical batch becomes a first-class batch
+    // record automatically (the internal Batch ID all downstream modules use).
+    const { data: order } = await c.from('supply_orders').select('supplier').eq('id', dn.order_id).single();
+    await createBatchesForGoodsReceipt(
+      { ...grRow, supplier: order && order.supplier, receipt_date: grRow.receipt_date },
+      inserted || [], { actor: opts.createdBy });
   }
   await c.from('delivery_notes').update({ status: 'Receiving Review', updated_at: new Date().toISOString() }).eq('id', deliveryNoteId);
   return getGoodsReceipt(grRow.id);
 }
 
-// Update one GR batch's QC decision + quantities.
+// Update one GR batch's QC decision + quantities. QC is decided per BATCH —
+// the decision is mirrored onto the Batch Master record (audited).
 export async function setBatchQc(grBatchId, patch) {
   const upd = {};
   ['received_cases', 'damaged_cases', 'short_cases', 'rejected_cases', 'qc_result', 'qc_note'].forEach((k) => {
     if (patch[k] !== undefined) upd[k] = patch[k];
   });
-  const { error } = await getClient().from('goods_receipt_batches').update(upd).eq('id', grBatchId);
+  const { data: row, error } = await getClient().from('goods_receipt_batches').update(upd).eq('id', grBatchId).select('batch_id,qc_result').single();
   if (error) throw error;
+  if (row && row.batch_id && patch.qc_result !== undefined) {
+    try { await setBatchQcStatus(row.batch_id, patch.qc_result, { note: patch.qc_note, actor: patch.actor }); } catch (e) { /* mirror best-effort */ }
+  }
 }
 
 // Record a shelf-life receiving exception (audit).
@@ -112,6 +126,7 @@ export async function recordShelfLifeException(ex) {
     required_pct: ex.required_pct != null ? ex.required_pct : null,
     remaining_pct: ex.remaining_pct != null ? ex.remaining_pct : null,
     decision: ex.decision, reason: ex.reason || null, decided_by: ex.decided_by || null,
+    ...(ex.decided_at ? { decided_at: ex.decided_at } : {}),
   });
   if (error) throw error;
 }
@@ -139,24 +154,76 @@ export async function releaseGoodsReceipt(grId, opts = {}) {
   const pending = gr.batches.filter((b) => b.qc_result === 'Pending QC');
   if (pending.length) throw new Error(`${pending.length} batch(es) still Pending QC — decide Release/Reject for every batch before releasing.`);
 
+  // Over-delivery prevention: total received per line (already POSTED to
+  // inventory + this receipt) must not exceed the approved PO-revision quantity.
+  // "Already posted" is read from inventory_movements (net of any reversals) so
+  // the current, not-yet-released receipt is never double-counted.
+  const { data: mv } = await c.from('inventory_movements').select('roshen_id,item_code,cases_delta').eq('order_id', gr.order_id);
+  const postedByKey = {};
+  (mv || []).forEach((m) => { const k = keyOf(m.roshen_id, m.item_code); postedByKey[k] = (postedByKey[k] || 0) + Number(m.cases_delta || 0); });
+  const { data: ful } = await c.from('po_line_fulfillment').select('line_key,ordered_cases,description').eq('order_id', gr.order_id);
+  const orderedByKey = {};
+  (ful || []).forEach((r) => { orderedByKey[normRoshen(r.line_key)] = { ordered: Number(r.ordered_cases || 0), desc: r.description }; });
+  const addByKey = {}, labelByKey = {};
+  gr.batches.filter((b) => b.qc_result === 'Released').forEach((b) => {
+    const k = keyOf(b.roshen_id, b.item_code);
+    addByKey[k] = (addByKey[k] || 0) + Number(b.received_cases || 0);
+    labelByKey[k] = b.description || b.roshen_id || b.item_code;
+  });
+  for (const k of Object.keys(addByKey)) {
+    const po = orderedByKey[k];
+    if (!po) continue; // additional item not on the PO — disputed, not received here
+    const already = postedByKey[k] || 0;
+    if (already + addByKey[k] > po.ordered + 0.0001) {
+      throw new Error(`Cannot receive ${addByKey[k]} of ${po.desc || labelByKey[k]}: the approved PO allows ${po.ordered} and ${already} is already received. Over-delivery must be disputed, not received.`);
+    }
+  }
+
   const costByKey = opts.costByKey || {};
   const warehouse = opts.warehouse || gr.warehouse || (gr.order && gr.order.warehouse) || null;
 
   const released = gr.batches.filter((b) => b.qc_result === 'Released' && Number(b.received_cases || 0) > 0);
+
+  // Shelf-life gate: every released batch must meet the SKU's minimum
+  // remaining shelf life (master data, default 70%) — a below-minimum batch
+  // can only be released with a recorded "Accept Exception" (audited).
+  if (released.length) {
+    const skuIds = [...new Set(released.map((b) => b.sku_id).filter(Boolean))];
+    const { data: skus } = skuIds.length ? await c.from('sku_master')
+      .select('id,shelf_life_value,shelf_life_unit,min_remaining_shelf_life_pct').in('id', skuIds) : { data: [] };
+    const skuById = {}; (skus || []).forEach((s) => { skuById[s.id] = s; });
+    const dnBatchIds = released.map((b) => b.dn_batch_id).filter(Boolean);
+    const { data: exceptions } = dnBatchIds.length ? await c.from('shelf_life_exceptions')
+      .select('dn_batch_id,decision').in('dn_batch_id', dnBatchIds).eq('decision', 'Accept Exception') : { data: [] };
+    const excepted = new Set((exceptions || []).map((e) => e.dn_batch_id));
+    const blockedBatches = released.filter((b) => {
+      const sl = shelfLife(skuById[b.sku_id] || null, { expiry_date: b.expiry_date, manufacturing_date: b.manufacturing_date }, today());
+      return sl.belowMinimum && !excepted.has(b.dn_batch_id);
+    });
+    if (blockedBatches.length) {
+      throw new Error(`Shelf-life rule: ${blockedBatches.length} batch(es) are below the minimum remaining shelf life (${blockedBatches.map((b) => (b.batch_no || b.description || '#' + b.id)).join(', ')}). Record an approved "Accept Exception" for each, or reject them.`);
+    }
+  }
   for (const b of released) {
     const key = keyOf(b.roshen_id, b.item_code);
     const cost = costByKey[key] != null ? costByKey[key] : null;
-    // movement — the single source of truth; the inventory view aggregates it
-    const { error: em } = await c.from('inventory_movements').insert({
-      order_id: gr.order_id, gr_id: gr.id, gr_batch_id: b.id, dn_batch_id: b.dn_batch_id,
-      dn_id: gr.delivery_note_id,
-      item_code: b.item_code, roshen_id: b.roshen_id, description: b.description,
-      batch_no: b.batch_no, manufacturing_date: b.manufacturing_date, expiry_date: b.expiry_date,
-      warehouse, movement_type: 'GR', cases_delta: Number(b.received_cases || 0),
-      unit_cost: cost, reference: gr.grn_number, created_by: opts.releasedBy || null,
+    // Goods Receipt does NOT update inventory — it posts a transaction through
+    // the Inventory Transaction Engine (the only component that changes stock).
+    await postTransaction({
+      type: 'GR', qty: Number(b.received_cases || 0),
+      skuId: b.sku_id || null, batchId: b.batch_id || null, warehouse,
+      unitCost: cost, referenceModule: 'goods-receipt', reference: gr.grn_number, actor: opts.releasedBy,
+      context: {
+        orderId: gr.order_id, grId: gr.id, grBatchId: b.id, dnBatchId: b.dn_batch_id, dnId: gr.delivery_note_id,
+        itemCode: b.item_code, roshenId: b.roshen_id, description: b.description,
+        batchNo: b.batch_no, manufacturingDate: b.manufacturing_date, expiryDate: b.expiry_date,
+      },
     });
-    if (em) throw em;
     if (b.dn_batch_id) await c.from('delivery_note_batches').update({ qc_status: 'Released' }).eq('id', b.dn_batch_id);
+    if (b.batch_id) {
+      await c.from('batch_master').update({ released_at: new Date().toISOString(), warehouse, updated_at: new Date().toISOString() }).eq('id', b.batch_id);
+      try { await logBatchAudit(b.batch_id, 'released', { detail: { cases: Number(b.received_cases || 0), grn: gr.grn_number, warehouse }, actor: opts.releasedBy }); } catch (e) { /* best-effort */ }
+    }
   }
   // rejected DN batches
   for (const b of gr.batches.filter((x) => x.qc_result === 'Rejected')) {
@@ -171,7 +238,69 @@ export async function releaseGoodsReceipt(grId, opts = {}) {
     status, warehouse, released_at: new Date().toISOString(), updated_at: new Date().toISOString(),
   }).eq('id', grId);
   await c.from('delivery_notes').update({
-    status: rej === total ? 'Cancelled' : 'Received', received_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    status: rej === total ? 'Cancelled' : 'Received', received_at: new Date().toISOString(),
+    received_by: opts.releasedBy || null,   // warehouse confirmation block on the DN
+    updated_at: new Date().toISOString(),
   }).eq('id', gr.delivery_note_id);
+  await syncOrderReceivingStatus(gr.order_id);
   return { status, released: rel, rejected: rej, total };
+}
+
+// Keep the PI's operational status in sync with the fulfillment ledger AFTER
+// the goods-receipt header is final (the DB trigger fires per movement, before
+// the GR is marked Released, so it can lag one release behind). The PI CLOSES
+// automatically only when every ordered quantity has been received — per line,
+// not just in total. Never touches the explicit financial states.
+async function syncOrderReceivingStatus(orderId) {
+  const c = getClient();
+  const { data: o } = await c.from('supply_orders').select('status').eq('id', orderId).single();
+  if (!o || ['Invoice Matched', 'Financially Closed'].includes(o.status)) return;
+  const { data: rows } = await c.from('po_line_fulfillment').select('ordered_cases,delivered_cases,received_cases').eq('order_id', orderId);
+  if (!rows || !rows.length) return;
+  let ordered = 0, delivered = 0, received = 0;
+  const everyLineReceived = rows.every((r) => Number(r.received_cases || 0) >= Number(r.ordered_cases || 0) - 0.0001);
+  rows.forEach((r) => { ordered += Number(r.ordered_cases || 0); delivered += Number(r.delivered_cases || 0); received += Number(r.received_cases || 0); });
+  let status = null;
+  if (received > 0 && everyLineReceived) status = 'Closed';           // auto-close: everything received
+  else if (received > 0) status = 'Partially Received';
+  else if (delivered > 0) status = delivered >= ordered - 0.0001 ? 'Fully Delivered' : 'Partially Delivered';
+  if (status && status !== o.status) {
+    await c.from('supply_orders').update({ status, updated_at: new Date().toISOString() }).eq('id', orderId);
+  }
+}
+
+// Reverse a released goods receipt: post compensating (negative) inventory
+// movements for every released batch — the movement-based inventory view nets
+// them to zero — reset the DN batch QC, and cancel the receipt. Used by a DN
+// reversal; the movement ledger keeps a permanent audit of both postings.
+export async function reverseReleasedGoodsReceipt(grId, opts = {}) {
+  const c = getClient();
+  const gr = await getGoodsReceipt(grId);
+  if (!['Released', 'Partially Released'].includes(gr.status)) {
+    throw new Error('Only a released goods receipt can be reversed.');
+  }
+  const released = gr.batches.filter((b) => b.qc_result === 'Released' && Number(b.received_cases || 0) > 0);
+  for (const b of released) {
+    // compensating transaction through the engine (REVERSAL always posts)
+    await postTransaction({
+      type: 'REVERSAL', delta: -Number(b.received_cases || 0),
+      skuId: b.sku_id || null, batchId: b.batch_id || null, warehouse: gr.warehouse,
+      referenceModule: 'goods-receipt', reference: 'REVERSAL ' + (gr.grn_number || ''), actor: opts.actor,
+      context: {
+        orderId: gr.order_id, grId: gr.id, grBatchId: b.id, dnBatchId: b.dn_batch_id, dnId: gr.delivery_note_id,
+        itemCode: b.item_code, roshenId: b.roshen_id, description: b.description,
+        batchNo: b.batch_no, manufacturingDate: b.manufacturing_date, expiryDate: b.expiry_date,
+      },
+    });
+    if (b.dn_batch_id) await c.from('delivery_note_batches').update({ qc_status: 'Pending QC' }).eq('id', b.dn_batch_id);
+    if (b.batch_id) {
+      await c.from('batch_master').update({ qc_status: 'Pending QC', released_at: null, updated_at: new Date().toISOString() }).eq('id', b.batch_id);
+      try { await logBatchAudit(b.batch_id, 'reversed', { detail: { cases: -Number(b.received_cases || 0), grn: gr.grn_number }, note: opts.reason, actor: opts.actor }); } catch (e) { /* best-effort */ }
+    }
+  }
+  await c.from('goods_receipts').update({
+    status: 'Cancelled', notes: opts.reason || 'Reversed', updated_at: new Date().toISOString(),
+  }).eq('id', grId);
+  await syncOrderReceivingStatus(gr.order_id);
+  return { reversed: true, batches: released.length, casesReversed: released.reduce((a, b) => a + Number(b.received_cases || 0), 0) };
 }

@@ -3,6 +3,33 @@
 // chain. Pages talk to this; only this talks to Supabase.
 import { getClient, one } from '../supabase/client.js';
 import { lineKey as keyOf } from '../../utils/format.js';
+import { reverseReleasedGoodsReceipt } from '../goods-receiving/goods-receiving.service.js';
+
+// ---- audit trail ----------------------------------------------------
+export async function logDnAudit(dnId, orderId, action, { detail, note, actor } = {}) {
+  const { error } = await getClient().from('dn_audit_log').insert({
+    dn_id: dnId, order_id: orderId || null, action, detail: detail || null, note: note || null, actor: actor || null,
+  });
+  if (error) throw error;
+}
+export async function listDnAudit(dnId) {
+  const { data, error } = await getClient().from('dn_audit_log')
+    .select('*').eq('dn_id', dnId).order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+// compact snapshot of a DN's lines/batches for before/after audit detail
+function dnSnapshot(dn) {
+  return {
+    status: dn.status, dn_number: dn.dn_number, dn_date: dn.dn_date, po_reference: dn.po_reference,
+    total_cartons: dn.total_cartons,
+    lines: (dn.items || []).map((it) => ({
+      roshen_id: it.roshen_id, item_code: it.item_code,
+      cases: (it.batches || []).reduce((a, b) => a + Number(b.cases || 0), 0),
+      batches: (it.batches || []).map((b) => ({ batch_no: b.batch_no, expiry_date: b.expiry_date, manufacturing_date: b.manufacturing_date, cases: b.cases })),
+    })),
+  };
+}
 
 // Orders that have reached the phase where deliveries can arrive.
 export const RECEIVABLE_STATUSES = [
@@ -67,6 +94,51 @@ export async function createDeliveryNote(dn) {
   const already = await findDeliveryNoteRow(dn.orderId, dnNumber);
   if (already) return already;
 
+  // PO quantity guard: the cumulative delivered quantity per line (existing
+  // non-cancelled DNs + this one) must not exceed the PO (latest approved
+  // revision) quantity. Blocked by default; an explicit allowOverDelivery
+  // records the excess as a disputed over-delivery instead (it still can never
+  // be RECEIVED — goods receipt is hard-capped at the PO quantity).
+  {
+    const ful = await getFulfillment(dn.orderId);
+    const fulByKey = {};
+    ful.forEach((r) => { fulByKey[keyOf(r.roshen_id, r.item_code)] = r; });
+
+    // Rule: every item on the delivery note must exist on the PI. An unknown
+    // item is a hard block — there is no override; correct the document or
+    // the PI first.
+    const unknown = (dn.lines || []).filter((line) => !fulByKey[line.line_key || keyOf(line.roshen_id, line.item_code)]);
+    if (unknown.length) {
+      const err = new Error('Items not on the purchase order: ' +
+        unknown.map((l) => l.description || l.roshen_id || l.item_code || '?').join(', ') +
+        '. Every delivery-note item must exist on the PI — remove these lines or revise the PI first.');
+      err.code = 'ITEM_NOT_ON_PO';
+      throw err;
+    }
+
+    // Rule: the cumulative quantity across all DNs can never exceed the PI
+    // quantity. Blocked by default; an explicit allowOverDelivery records the
+    // excess as a disputed over-delivery instead (it still can never be
+    // RECEIVED — goods receipt is hard-capped at the PI quantity).
+    if (dn.allowOverDelivery !== true) {   // only an explicit boolean true bypasses
+      const violations = [];
+      for (const line of dn.lines || []) {
+        const lk = line.line_key || keyOf(line.roshen_id, line.item_code);
+        const f = fulByKey[lk];
+        const add = (line.batches || []).reduce((a, b) => a + Number(b.cases || 0), 0);
+        const ordered = Number(f.ordered_cases || 0), delivered = Number(f.delivered_cases || 0);
+        if (delivered + add > ordered + 0.0001) {
+          violations.push(`${f.description || lk}: PO allows ${ordered}, ${delivered} already delivered, this delivery adds ${add} (${delivered + add - ordered} over)`);
+        }
+      }
+      if (violations.length) {
+        const err = new Error('Delivery exceeds the purchase order quantity — ' + violations.join('; ') + '. Reduce the quantities, or record it explicitly as a disputed over-delivery.');
+        err.code = 'OVER_DELIVERY';
+        throw err;
+      }
+    }
+  }
+
   const poIdx = await poItemIndex(dn.orderId);
 
   const insertHeader = () => c.from('delivery_notes').insert({
@@ -75,6 +147,17 @@ export async function createDeliveryNote(dn) {
     dn_date: dn.header.dn_date || null,
     supplier: dn.header.supplier || null,
     po_reference: dn.header.po_reference || null,
+    // full document header block — preserved exactly as imported
+    document_type: dn.header.document_type || null,
+    supplier_vat: dn.header.supplier_vat || null,
+    supplier_cr: dn.header.supplier_cr || null,
+    supplier_address: dn.header.supplier_address || null,
+    supplier_short_address: dn.header.supplier_short_address || null,
+    supplier_bank: dn.header.supplier_bank || null,
+    supplier_iban: dn.header.supplier_iban || null,
+    customer: dn.header.customer || null,
+    customer_vat: dn.header.customer_vat || null,
+    customer_cr: dn.header.customer_cr || null,
     currency: dn.header.currency || 'SAR',
     total_cartons: dn.header.total_cartons != null ? dn.header.total_cartons : null,
     notes: dn.header.notes || null,
@@ -94,10 +177,18 @@ export async function createDeliveryNote(dn) {
     throw e1;
   }
 
-  for (const line of dn.lines) {
+  await insertLinesAndBatches(dnRow.id, poIdx, dn.lines);
+  try { await logDnAudit(dnRow.id, dn.orderId, 'created', { detail: { dn_number: dnNumber, lines: dn.lines.length }, actor: dn.createdBy }); } catch (e) { /* audit best-effort */ }
+  return dnRow;
+}
+
+// Insert a DN's SKU lines + physical batches (shared by create and edit).
+async function insertLinesAndBatches(dnId, poIdx, lines) {
+  const c = getClient();
+  for (const line of lines || []) {
     const lk = line.line_key || keyOf(line.roshen_id, line.item_code);
     const { data: itemRow, error: e2 } = await c.from('delivery_note_items').insert({
-      dn_id: dnRow.id,
+      dn_id: dnId,
       po_item_id: poIdx[lk] || null,
       item_code: line.item_code || null,
       roshen_id: line.roshen_id || null,
@@ -124,7 +215,6 @@ export async function createDeliveryNote(dn) {
       if (e3) throw e3;
     }
   }
-  return dnRow;
 }
 
 export async function listDeliveryNotes(orderId) {
@@ -150,18 +240,133 @@ export async function getDeliveryNote(id) {
             'goods_receipts(*, goods_receipt_batches(*))')
     .eq('id', id).single();
   if (error) throw error;
+  // A delivery note may now carry several invoices (partial invoicing + credit/
+  // debit notes). Pick a primary for the header/gate — a Matched tax invoice
+  // wins, else Partially Matched, else the most recent non-cancelled.
+  const invoices = (data.supplier_invoices || []);
+  const primary = pickPrimaryInvoice(invoices);
   return {
     ...data,
     order: one(data.supply_orders),
     items: (data.delivery_note_items || []).map((it) => ({ ...it, batches: it.delivery_note_batches || [] })),
-    invoice: one(data.supplier_invoices),
+    invoice: primary,
+    invoices,
     goods_receipt: one(data.goods_receipts),
   };
 }
 
-export async function setDeliveryNoteStatus(id, status) {
+function pickPrimaryInvoice(invoices) {
+  const active = (invoices || []).filter((i) => (i.doc_type == null || i.doc_type === 'invoice') && i.status !== 'Cancelled' && i.status !== 'Replaced');
+  const rank = (s) => (s === 'Matched' ? 3 : s === 'Partially Matched' ? 2 : 1);
+  return active.slice().sort((a, b) => rank(b.status) - rank(a.status) || (b.id - a.id))[0] || null;
+}
+
+export async function setDeliveryNoteStatus(id, status, { actor } = {}) {
   const patch = { status, updated_at: new Date().toISOString() };
-  if (status === 'Received') patch.received_at = new Date().toISOString();
+  if (status === 'Received') {
+    patch.received_at = new Date().toISOString();
+    if (actor) patch.received_by = actor;   // warehouse confirmation block
+  }
   const { error } = await getClient().from('delivery_notes').update(patch).eq('id', id);
   if (error) throw error;
+}
+
+// ---- shipment stage ---------------------------------------------------
+// After the supplier invoice matches, the shipment is Ready for Delivery /
+// In Transit with an expected delivery date & time — NOT yet inventory.
+// Goods receipt happens only when the arrival is confirmed.
+
+// Called by the invoice service when a DN's invoice becomes Matched.
+export async function markDnReadyForDelivery(dnId, { actor } = {}) {
+  const c = getClient();
+  const { data: dn } = await c.from('delivery_notes').select('id,order_id,status').eq('id', dnId).single();
+  if (!dn || !['Imported', 'Draft'].includes(dn.status)) return; // never regress a later stage
+  const { error } = await c.from('delivery_notes')
+    .update({ status: 'Ready for Delivery', updated_at: new Date().toISOString() }).eq('id', dnId);
+  if (error) throw error;
+  try { await logDnAudit(dnId, dn.order_id, 'status_change', { detail: { to: 'Ready for Delivery', reason: 'supplier invoice matched' }, actor }); } catch (e) { /* best-effort */ }
+}
+
+// Dispatch the shipment: set In Transit + the expected delivery date & time.
+export async function markDnInTransit(dnId, { expectedAt, actor } = {}) {
+  const dn = await getDeliveryNote(dnId);
+  if (!['Ready for Delivery', 'Imported', 'In Transit'].includes(dn.status)) {
+    throw new Error(`Cannot dispatch a ${dn.status.toLowerCase()} delivery note.`);
+  }
+  if (dn.status === 'Imported' && !(dn.invoice && dn.invoice.status === 'Matched')) {
+    throw new Error('The supplier invoice must be matched before the shipment can be dispatched.');
+  }
+  const { error } = await getClient().from('delivery_notes').update({
+    status: 'In Transit', expected_delivery_at: expectedAt || null, updated_at: new Date().toISOString(),
+  }).eq('id', dnId);
+  if (error) throw error;
+  try { await logDnAudit(dnId, dn.order_id, 'status_change', { detail: { to: 'In Transit', expected_delivery_at: expectedAt || null }, actor }); } catch (e) { /* best-effort */ }
+  return { inTransit: true };
+}
+
+// Update / set the expected delivery date & time on its own.
+export async function setExpectedDelivery(dnId, expectedAt, { actor } = {}) {
+  const { data: dn, error } = await getClient().from('delivery_notes')
+    .update({ expected_delivery_at: expectedAt || null, updated_at: new Date().toISOString() })
+    .eq('id', dnId).select('order_id').single();
+  if (error) throw error;
+  try { await logDnAudit(dnId, dn.order_id, 'status_change', { detail: { expected_delivery_at: expectedAt || null }, actor }); } catch (e) { /* best-effort */ }
+}
+
+const hasReleasedGr = (gr) => gr && ['Released', 'Partially Released'].includes(gr.status);
+
+// Edit a delivery note's header / lines / batches. Allowed only before goods
+// have been received. Records a before/after audit entry. The batch triggers
+// keep the fulfillment ledger consistent.
+export async function editDeliveryNote(dnId, { header, lines }, actor) {
+  const dn = await getDeliveryNote(dnId);
+  if (['Cancelled', 'Reversed'].includes(dn.status)) throw new Error(`Cannot edit a ${dn.status.toLowerCase()} delivery note.`);
+  if (hasReleasedGr(dn.goods_receipt)) throw new Error('Cannot edit — goods have already been received. Reverse the receipt first.');
+  const c = getClient();
+  const before = dnSnapshot(dn);
+
+  if (header) {
+    const patch = { updated_at: new Date().toISOString() };
+    ['dn_date', 'supplier', 'po_reference', 'notes', 'total_cartons'].forEach((k) => { if (header[k] !== undefined) patch[k] = header[k]; });
+    const { error } = await c.from('delivery_notes').update(patch).eq('id', dnId);
+    if (error) throw error;
+  }
+  if (lines) {
+    const { error: eDel } = await c.from('delivery_note_items').delete().eq('dn_id', dnId); // cascade drops batches
+    if (eDel) throw eDel;
+    await insertLinesAndBatches(dnId, await poItemIndex(dn.order_id), lines);
+  }
+  const after = dnSnapshot(await getDeliveryNote(dnId));
+  await logDnAudit(dnId, dn.order_id, 'edited', { detail: { before, after }, actor });
+  return { edited: true };
+}
+
+// Cancel a delivery note (before receiving). Excluded from the fulfillment
+// ledger; the PO balance reverts automatically.
+export async function cancelDeliveryNote(dnId, { reason, actor } = {}) {
+  const dn = await getDeliveryNote(dnId);
+  if (dn.status === 'Cancelled') return { cancelled: true };
+  if (hasReleasedGr(dn.goods_receipt)) throw new Error('Cannot cancel — goods already received. Use Reverse instead.');
+  const { error } = await getClient().from('delivery_notes')
+    .update({ status: 'Cancelled', updated_at: new Date().toISOString() }).eq('id', dnId);
+  if (error) throw error;
+  await logDnAudit(dnId, dn.order_id, 'cancelled', { note: reason, actor });
+  return { cancelled: true };
+}
+
+// Reverse a delivery note whose goods were already received: post compensating
+// inventory movements (via the goods-receiving service), cancel the receipt,
+// and mark the DN Reversed — with a full audit trail.
+export async function reverseDeliveryNote(dnId, { reason, actor } = {}) {
+  const dn = await getDeliveryNote(dnId);
+  if (dn.status === 'Reversed') return { reversed: true };
+  let reversal = null;
+  if (hasReleasedGr(dn.goods_receipt)) {
+    reversal = await reverseReleasedGoodsReceipt(dn.goods_receipt.id, { actor, reason });
+  }
+  const { error } = await getClient().from('delivery_notes')
+    .update({ status: 'Reversed', updated_at: new Date().toISOString() }).eq('id', dnId);
+  if (error) throw error;
+  await logDnAudit(dnId, dn.order_id, 'reversed', { note: reason, actor, detail: { grn: dn.goods_receipt ? dn.goods_receipt.grn_number : null, reversal } });
+  return { reversed: true };
 }

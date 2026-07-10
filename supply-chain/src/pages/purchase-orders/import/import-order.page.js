@@ -19,7 +19,7 @@ export function render(root, ctx) {
 
   const drop = root.querySelector('[data-el="drop"]');
   const file = root.querySelector('[data-el="file"]');
-  wire(root, { cancel: () => ctx.navigate('order-history') });
+  wire(root, { cancel: () => ctx.navigate('purchase-orders') });
   drop.addEventListener('click', () => file.click());
   file.addEventListener('change', () => handle(file.files && file.files[0]));
   ['dragover', 'dragenter'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
@@ -30,7 +30,7 @@ export function render(root, ctx) {
     if (!f) return;
     if (typeof window.XLSX === 'undefined') { toast('Excel engine not loaded', 'err'); return; }
     const rd = new FileReader();
-    rd.onload = (e) => startImportFlow(root, ctx, e.target.result, f.name);
+    rd.onload = (e) => startImportFlow(root, ctx, e.target.result, f.name, f);
     rd.readAsArrayBuffer(f);
   }
 }

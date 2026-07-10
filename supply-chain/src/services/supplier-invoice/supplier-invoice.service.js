@@ -6,6 +6,22 @@
 import { getClient, one } from '../supabase/client.js';
 import { lineKey as keyOf } from '../../utils/format.js';
 import { compareInvoiceToDeliveryNote } from './invoice-compare.js';
+import { matchInvoiceLines } from './invoice-line-match.js';
+import { markDnReadyForDelivery } from '../delivery-note/delivery-note.service.js';
+
+// ---- audit trail (mirrors the delivery-note audit log) --------------
+export async function logInvoiceAudit(invoiceId, orderId, action, { detail, note, actor } = {}) {
+  const { error } = await getClient().from('supplier_invoice_audit_log').insert({
+    invoice_id: invoiceId, order_id: orderId || null, action, detail: detail || null, note: note || null, actor: actor || null,
+  });
+  if (error) throw error;
+}
+export async function listInvoiceAudit(invoiceId) {
+  const { data, error } = await getClient().from('supplier_invoice_audit_log')
+    .select('*').eq('invoice_id', invoiceId).order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
 
 // ---- original-document storage (audit) ------------------------------
 // The original PDF is kept as base64 in supplier_invoice_documents (under this
@@ -29,18 +45,22 @@ export async function getInvoiceDocument(invoiceId) {
 
 export async function listInvoices(orderId) {
   let q = getClient().from('supplier_invoices')
-    .select('*, delivery_notes(dn_number)').order('created_at', { ascending: false });
+    .select('*, delivery_notes(dn_number), supply_orders(order_number,status)').order('created_at', { ascending: false });
   if (orderId) q = q.eq('order_id', orderId);
   const { data, error } = await q;
   if (error) throw error;
-  return (data || []).map((i) => ({ ...i, delivery_note: one(i.delivery_notes) }));
+  return (data || []).map((i) => ({ ...i, delivery_note: one(i.delivery_notes), order: one(i.supply_orders) }));
 }
 
 export async function getInvoice(id) {
   const { data, error } = await getClient().from('supplier_invoices')
-    .select('*, supplier_invoice_items(*), delivery_notes(dn_number)').eq('id', id).single();
+    .select('*, supplier_invoice_items(*), delivery_notes(dn_number), supply_orders(id,order_number,status)').eq('id', id).single();
   if (error) throw error;
-  return { ...data, items: data.supplier_invoice_items || [], delivery_note: one(data.delivery_notes) };
+  return {
+    ...data,
+    items: (data.supplier_invoice_items || []).slice().sort((a, b) => (a.line_no || 0) - (b.line_no || 0)),
+    delivery_note: one(data.delivery_notes), order: one(data.supply_orders),
+  };
 }
 
 // DN → invoice match context: expected net (delivered cartons × PO case price),
@@ -64,6 +84,72 @@ async function deliveryNoteMatchContext(deliveryNoteId) {
   return { orderId: dn.order_id, dnNumber: dn.dn_number, poReference: dn.po_reference, expectedNet: +expectedNet.toFixed(2), lineCount };
 }
 
+// ---- automatic linking by document references -----------------------
+// The invoice document carries its own references (e.g. subject "KS-417
+// DN-761"); system documents carry the year suffix (KS-417/2026,
+// DN-761/2026). A reference matches a document number when it is equal or
+// the number continues with "/…".
+const refMatches = (num, ref) => {
+  if (!num || !ref) return false;
+  const n = String(num).trim().toLowerCase(), r = String(ref).trim().toLowerCase();
+  return n === r || n.startsWith(r + '/');
+};
+
+// Resolve the PI (supply_orders) and Delivery Note this invoice references.
+// Returns { order, dn } — either may be null when the document isn't in the
+// system yet (the invoice then stays in 'Pending Matching').
+export async function resolveInvoiceReferences({ po_reference, dn_reference } = {}) {
+  const c = getClient();
+  let order = null, dn = null;
+  if (po_reference) {
+    const { data, error } = await c.from('supply_orders')
+      .select('id,order_number,supplier,status').ilike('order_number', String(po_reference).trim() + '%');
+    if (error) throw error;
+    order = (data || []).find((o) => refMatches(o.order_number, po_reference)) || null;
+  }
+  if (dn_reference) {
+    let q = c.from('delivery_notes').select('id,dn_number,order_id,status')
+      .ilike('dn_number', String(dn_reference).trim() + '%')
+      .not('status', 'in', '("Cancelled","Reversed")');
+    if (order) q = q.eq('order_id', order.id);
+    const { data, error } = await q;
+    if (error) throw error;
+    dn = (data || []).find((d) => refMatches(d.dn_number, dn_reference)) || null;
+    if (dn && !order) {
+      const { data: o } = await c.from('supply_orders').select('id,order_number,supplier,status').eq('id', dn.order_id).single();
+      order = o || null;
+    }
+  }
+  return { order, dn };
+}
+
+// Link a 'Pending Matching' invoice once its referenced documents arrive.
+// Re-resolves the references; links the PI (and DN when found). The invoice
+// leaves Pending Matching only when its Delivery Note is linked — matching
+// itself stays an explicit step (Re-check match) so unbound lines can be
+// verified first.
+export async function linkPendingInvoice(invoiceId, { actor } = {}) {
+  const c = getClient();
+  const inv = await getInvoice(invoiceId);
+  if (inv.status !== 'Pending Matching') throw new Error('Only a Pending Matching invoice can be linked.');
+  const exh = (inv.extracted && inv.extracted.header) || {};
+  const { order, dn } = await resolveInvoiceReferences({
+    po_reference: exh.po_reference || null,
+    dn_reference: inv.dn_reference || exh.dn_reference || null,
+  });
+  if (!order && !dn) return { linked: false };
+  const patch = { updated_at: new Date().toISOString() };
+  if (order) patch.order_id = order.id;
+  if (dn) { patch.delivery_note_id = dn.id; patch.status = 'Imported'; }
+  const { error } = await c.from('supplier_invoices').update(patch).eq('id', invoiceId);
+  if (error) throw error;
+  try {
+    await logInvoiceAudit(invoiceId, (order && order.id) || inv.order_id, 'linked',
+      { detail: { order: order && order.order_number, dn: dn && dn.dn_number }, actor });
+  } catch (e) { /* audit best-effort */ }
+  return { linked: true, order: order || null, dn: dn || null, status: dn ? 'Imported' : 'Pending Matching' };
+}
+
 // Create an invoice from an uploaded supplier document (PDF). Stores the header,
 // the extracted payload + validation outcome, the original file for audit, and
 // the (user-verified, SKU-bound) line items. `status` is decided by the
@@ -79,18 +165,11 @@ export async function createSupplierInvoiceFromUpload(inv) {
     ? Number(inv.totals.vat) : +lines.reduce((a, l) => a + Number(l.vat_amount || 0), 0).toFixed(2);
   const grand = inv.totals && inv.totals.grand != null ? Number(inv.totals.grand) : +(total_taxable + total_vat).toFixed(2);
 
+  // Multiple invoices per delivery note are allowed (partial invoicing). We
+  // only resolve the DN/PO line ids so each invoice line stays traceable;
+  // replacing a prior invoice is now an explicit, audited action.
   const dnItemIdx = {}, poItemIdx = {};
   if (inv.deliveryNoteId) {
-    // A delivery note has exactly one supplier invoice. Replacing it is only
-    // safe before any goods receipt exists — once received, the invoice
-    // justifies posted inventory and its line ids are referenced by GR batches.
-    const { data: grs } = await c.from('goods_receipts').select('id').eq('delivery_note_id', inv.deliveryNoteId);
-    const { data: prev } = await c.from('supplier_invoices').select('id').eq('delivery_note_id', inv.deliveryNoteId);
-    if (prev && prev.length) {
-      if (grs && grs.length) throw new Error('A goods receipt already exists for this delivery note — the supplier invoice can no longer be replaced.');
-      const { error: delErr } = await c.from('supplier_invoices').delete().in('id', prev.map((p) => p.id));
-      if (delErr) throw delErr;
-    }
     const { data: dnItems } = await c.from('delivery_note_items')
       .select('id,item_code,roshen_id,po_item_id').eq('dn_id', inv.deliveryNoteId);
     (dnItems || []).forEach((r) => {
@@ -100,14 +179,25 @@ export async function createSupplierInvoiceFromUpload(inv) {
   }
 
   const { data: invRow, error: e1 } = await c.from('supplier_invoices').insert({
-    order_id: inv.orderId,
+    order_id: inv.orderId || null,   // null = not linked to a PI yet (Pending Matching)
     delivery_note_id: inv.deliveryNoteId || null,
+    doc_type: inv.docType || 'invoice',
+    parent_invoice_id: inv.parentInvoiceId || null,
     invoice_number: inv.header.invoice_number || ('INV-' + Date.now()),
     invoice_date: inv.header.invoice_date || null,
+    supply_date: inv.header.supply_date || null,
     supplier: inv.header.supplier || null,
     buyer: inv.header.buyer || null,
     currency: inv.header.currency || 'SAR',
     dn_reference: inv.header.dn_reference || null,
+    // financial document fields — preserved exactly as the document reads
+    due_date: inv.header.due_date || null,
+    payment_terms: inv.header.payment_terms || null,
+    seller_vat: inv.header.seller_vat || null,
+    seller_cr: inv.header.seller_cr || null,
+    buyer_vat: inv.header.buyer_vat || null,
+    doc_notes: inv.header.doc_notes || null,
+    zatca: inv.zatca || null,
     total_taxable, total_vat, grand_total: grand,
     status: inv.status || 'Imported',
     source_type: 'pdf',
@@ -137,10 +227,11 @@ export async function createSupplierInvoiceFromUpload(inv) {
     if (error) return cleanup('Could not finalise the invoice', error);
   }
 
-  const rows = lines.map((l) => {
+  const rows = lines.map((l, i) => {
     const key = keyOf(l.roshen_id, l.item_code);
     return {
-      invoice_id: invRow.id, dn_item_id: key ? (dnItemIdx[key] || null) : null, po_item_id: key ? (poItemIdx[key] || null) : null,
+      invoice_id: invRow.id, line_no: l.line_no != null ? l.line_no : i + 1,
+      dn_item_id: key ? (dnItemIdx[key] || null) : null, po_item_id: key ? (poItemIdx[key] || null) : null,
       item_code: l.item_code || null, roshen_id: l.roshen_id || null, description: l.description || null, uom: l.uom || null,
       invoiced_cases: l.invoiced_cases || 0, case_price: l.case_price != null ? l.case_price : null,
       taxable_amount: l.taxable_amount != null ? l.taxable_amount : null,
@@ -154,7 +245,208 @@ export async function createSupplierInvoiceFromUpload(inv) {
     const { error: e2 } = await c.from('supplier_invoice_items').insert(rows);
     if (e2) return cleanup('Could not store the invoice lines', e2);
   }
+  try {
+    await logInvoiceAudit(invRow.id, inv.orderId, inv.docType === 'credit_note' ? 'credit_note' : inv.docType === 'debit_note' ? 'debit_note' : 'created',
+      { detail: { invoice_number: invRow.invoice_number, doc_type: invRow.doc_type, lines: rows.length, status: invRow.status }, actor: inv.createdBy });
+  } catch (e) { /* audit best-effort */ }
+  // Persist line-level reconciliation immediately for a bound, DN-linked tax
+  // invoice (credit/debit notes are adjustments, not matched against delivery).
+  if (inv.deliveryNoteId && (inv.docType || 'invoice') === 'invoice') {
+    try { await matchInvoiceLineLevel(invRow.id, { actor: inv.createdBy, keepStatus: true }); } catch (e) { /* best-effort */ }
+    // Matched invoice → the shipment becomes Ready for Delivery (not yet inventory).
+    if (invRow.status === 'Matched') { try { await markDnReadyForDelivery(inv.deliveryNoteId, { actor: inv.createdBy }); } catch (e) { /* best-effort */ } }
+  }
   return invRow;
+}
+
+// ---- line-level reconciliation --------------------------------------
+async function fulfillmentRows(orderId) {
+  const { data, error } = await getClient().from('po_line_fulfillment').select('*').eq('order_id', orderId);
+  if (error) throw error;
+  return data || [];
+}
+
+// Billable baseline per PO line for one invoice: delivered cases at the PO
+// price, net of what OTHER (non-cancelled, non-replaced) invoices already
+// billed — so partial invoicing across several invoices reconciles correctly.
+export async function invoiceExpectedBaseline(orderId, excludeInvoiceId) {
+  const ful = await fulfillmentRows(orderId);
+  const selfContribution = {};
+  if (excludeInvoiceId) {
+    const { data } = await getClient().from('supplier_invoice_items')
+      .select('roshen_id,item_code,invoiced_cases').eq('invoice_id', excludeInvoiceId);
+    (data || []).forEach((r) => { const k = keyOf(r.roshen_id, r.item_code); if (k) selfContribution[k] = (selfContribution[k] || 0) + Number(r.invoiced_cases || 0); });
+  }
+  return ful.map((r) => {
+    const k = keyOf(r.roshen_id, r.item_code);
+    const invoicedTotal = Number(r.invoiced_cases || 0);
+    return {
+      roshen_id: r.roshen_id, item_code: r.item_code, description: r.description,
+      delivered_cases: Number(r.delivered_cases || 0),
+      already_invoiced_cases: Math.max(0, invoicedTotal - (selfContribution[k] || 0)),
+      po_price: Number(r.price_case || 0),
+    };
+  });
+}
+
+// Reconcile an invoice line-by-line against PO↔DN, persist per-line variances
+// and match_status, and (unless keepStatus) set the header status:
+//   Matched (clean full match) · Partially Matched (clean but lines still open)
+//   · Disputed (hard qty/price/tax variances or extra lines).
+export async function matchInvoiceLineLevel(invoiceId, { actor, keepStatus = false } = {}) {
+  const c = getClient();
+  const inv = await getInvoice(invoiceId);
+  const expected = await invoiceExpectedBaseline(inv.order_id, invoiceId);
+  const result = matchInvoiceLines(expected, inv.items || []);
+
+  const byKey = {};
+  (inv.items || []).forEach((it) => { const k = keyOf(it.roshen_id, it.item_code); if (k && byKey[k] == null) byKey[k] = it.id; });
+  for (const l of result.lines) {
+    if (l.kind === 'missing') continue;              // open PO line, no invoice item to stamp
+    const itemId = l.key ? byKey[l.key] : null;
+    if (!itemId) continue;
+    const { error } = await c.from('supplier_invoice_items').update({
+      match_status: l.kind,
+      expected_cases: l.expected_cases != null ? l.expected_cases : null,
+      expected_case_price: l.expected_case_price != null ? l.expected_case_price : null,
+      qty_variance: l.qty_variance != null ? l.qty_variance : null,
+      price_variance: l.price_variance != null ? l.price_variance : null,
+      tax_variance: l.tax_variance != null ? l.tax_variance : null,
+    }).eq('id', itemId);
+    if (error) throw error;
+  }
+
+  const status = result.summary.ok ? 'Matched' : result.summary.okPartial ? 'Partially Matched' : 'Disputed';
+  const patch = { match_summary: result.summary, validation_summary: result.summary, updated_at: new Date().toISOString() };
+  if (!keepStatus && inv.doc_type === 'invoice' && !['Cancelled', 'Replaced'].includes(inv.status)) patch.status = status;
+  const { error } = await c.from('supplier_invoices').update(patch).eq('id', invoiceId);
+  if (error) throw error;
+  if (!keepStatus) { try { await logInvoiceAudit(invoiceId, inv.order_id, status === 'Disputed' ? 'disputed' : 'matched', { detail: result.summary, actor }); } catch (e) { /* best-effort */ } }
+  // Matched invoice → the shipment becomes Ready for Delivery (not yet inventory).
+  if (patch.status === 'Matched' && inv.delivery_note_id) { try { await markDnReadyForDelivery(inv.delivery_note_id, { actor }); } catch (e) { /* best-effort */ } }
+  return { status: patch.status || inv.status, result, matched: result.summary.ok, partial: result.summary.okPartial && !result.summary.ok };
+}
+
+// ---- edit / cancel / replace / adjustment notes ---------------------
+const releasedGrForDn = async (dnId) => {
+  if (!dnId) return false;
+  const { data, error } = await getClient().from('goods_receipts').select('status').eq('delivery_note_id', dnId);
+  if (error) throw error;
+  return (data || []).some((g) => ['Released', 'Partially Released'].includes(g.status));
+};
+
+function invoiceSnapshot(inv) {
+  return {
+    status: inv.status, invoice_number: inv.invoice_number, invoice_date: inv.invoice_date, doc_type: inv.doc_type,
+    total_taxable: inv.total_taxable, total_vat: inv.total_vat, grand_total: inv.grand_total,
+    lines: (inv.items || []).map((l) => ({ roshen_id: l.roshen_id, item_code: l.item_code, invoiced_cases: l.invoiced_cases, case_price: l.case_price, taxable_amount: l.taxable_amount, vat_amount: l.vat_amount })),
+  };
+}
+
+async function resolveDnPoIdx(deliveryNoteId) {
+  const idx = { dnItemIdx: {}, poItemIdx: {} };
+  if (!deliveryNoteId) return idx;
+  const { data } = await getClient().from('delivery_note_items').select('id,item_code,roshen_id,po_item_id').eq('dn_id', deliveryNoteId);
+  (data || []).forEach((r) => { const k = keyOf(r.roshen_id, r.item_code); if (k) { idx.dnItemIdx[k] = r.id; idx.poItemIdx[k] = r.po_item_id; } });
+  return idx;
+}
+
+async function insertInvoiceLines(invoiceId, idx, lines) {
+  const rows = (lines || []).map((l, i) => {
+    const key = keyOf(l.roshen_id, l.item_code);
+    return {
+      invoice_id: invoiceId, line_no: l.line_no != null ? l.line_no : i + 1,
+      dn_item_id: key ? (idx.dnItemIdx[key] || null) : null, po_item_id: key ? (idx.poItemIdx[key] || null) : null,
+      item_code: l.item_code || null, roshen_id: l.roshen_id || null, description: l.description || null, uom: l.uom || null,
+      invoiced_cases: l.invoiced_cases || 0, case_price: l.case_price != null ? l.case_price : null,
+      taxable_amount: l.taxable_amount != null ? l.taxable_amount : null,
+      vat_percent: l.vat_percent != null ? l.vat_percent : null,
+      vat_amount: l.vat_amount != null ? l.vat_amount : null,
+      line_total: l.line_total != null ? l.line_total : null,
+      match_status: key ? 'bound' : 'unbound',
+    };
+  });
+  if (rows.length) { const { error } = await getClient().from('supplier_invoice_items').insert(rows); if (error) throw error; }
+}
+
+const sum2 = (arr, f) => +(arr || []).reduce((a, x) => a + Number(f(x) || 0), 0).toFixed(2);
+
+// Edit an invoice header / lines. Blocked once goods have been received against
+// its delivery note, or if it is a credit/debit note (issue a new note instead).
+export async function editSupplierInvoice(invoiceId, { header, lines }, actor) {
+  const c = getClient();
+  const inv = await getInvoice(invoiceId);
+  if (['Cancelled', 'Replaced'].includes(inv.status)) throw new Error(`Cannot edit a ${inv.status.toLowerCase()} invoice.`);
+  if (inv.doc_type !== 'invoice') throw new Error('Credit and debit notes cannot be edited — issue a new adjustment note instead.');
+  if (await releasedGrForDn(inv.delivery_note_id)) throw new Error('Cannot edit — goods have already been received against this delivery note. Reverse the goods receipt first.');
+  const before = invoiceSnapshot(inv);
+
+  const patch = { updated_at: new Date().toISOString() };
+  if (header) ['invoice_number', 'invoice_date', 'supply_date', 'supplier', 'buyer', 'currency', 'dn_reference'].forEach((k) => { if (header[k] !== undefined) patch[k] = header[k]; });
+  if (header && header.zatca !== undefined) patch.zatca = header.zatca;
+  if (lines) {
+    patch.total_taxable = sum2(lines, (l) => l.taxable_amount);
+    patch.total_vat = sum2(lines, (l) => l.vat_amount);
+    patch.grand_total = +(patch.total_taxable + patch.total_vat).toFixed(2);
+  }
+  const { error: eH } = await c.from('supplier_invoices').update(patch).eq('id', invoiceId);
+  if (eH) { if (eH.code === '23505') throw new Error('Another active invoice already uses this number on this purchase order.'); throw eH; }
+
+  if (lines) {
+    const { error: eDel } = await c.from('supplier_invoice_items').delete().eq('invoice_id', invoiceId);
+    if (eDel) throw eDel;
+    await insertInvoiceLines(invoiceId, await resolveDnPoIdx(inv.delivery_note_id), lines);
+  }
+  const reMatch = await matchInvoiceLineLevel(invoiceId, { actor, keepStatus: false });
+  const after = invoiceSnapshot(await getInvoice(invoiceId));
+  await logInvoiceAudit(invoiceId, inv.order_id, 'edited', { detail: { before, after, match: reMatch.result.summary }, actor });
+  return { edited: true, status: reMatch.status };
+}
+
+// Cancel an invoice (removed from the invoiced ledger — the view excludes it).
+export async function cancelSupplierInvoice(invoiceId, { reason, actor } = {}) {
+  const inv = await getInvoice(invoiceId);
+  if (inv.status === 'Cancelled') return { cancelled: true };
+  if (inv.doc_type === 'invoice' && await releasedGrForDn(inv.delivery_note_id)) {
+    throw new Error('Cannot cancel — goods already received against this delivery note. Reverse the goods receipt first.');
+  }
+  const { error } = await getClient().from('supplier_invoices')
+    .update({ status: 'Cancelled', updated_at: new Date().toISOString() }).eq('id', invoiceId);
+  if (error) throw error;
+  await logInvoiceAudit(invoiceId, inv.order_id, 'cancelled', { note: reason, actor });
+  return { cancelled: true };
+}
+
+// Supersede an invoice with a corrected one (both kept for audit): the original
+// becomes Replaced and points at its replacement.
+export async function supersedeInvoice(oldInvoiceId, newInvoiceId, { reason, actor } = {}) {
+  const oldInv = await getInvoice(oldInvoiceId);
+  if (oldInv.doc_type === 'invoice' && await releasedGrForDn(oldInv.delivery_note_id)) {
+    throw new Error('Cannot replace — goods already received against this delivery note. Reverse the goods receipt first.');
+  }
+  const { error } = await getClient().from('supplier_invoices')
+    .update({ status: 'Replaced', superseded_by: newInvoiceId, updated_at: new Date().toISOString() }).eq('id', oldInvoiceId);
+  if (error) throw error;
+  await getClient().from('supplier_invoices').update({ parent_invoice_id: oldInvoiceId }).eq('id', newInvoiceId);
+  await logInvoiceAudit(oldInvoiceId, oldInv.order_id, 'replaced', { note: reason, detail: { superseded_by: newInvoiceId }, actor });
+  return { replaced: true };
+}
+
+// Issue a credit or debit note against an invoice. Lines carry SIGNED cases /
+// amounts (a credit note reduces the invoiced balance, a debit note increases
+// it) — the fulfillment ledger nets them automatically.
+export async function createAdjustmentNote(parentInvoiceId, { docType, header, lines, totals, reason, actor } = {}) {
+  if (!['credit_note', 'debit_note'].includes(docType)) throw new Error('Adjustment note type must be credit_note or debit_note.');
+  const parent = await getInvoice(parentInvoiceId);
+  const note = await createSupplierInvoiceFromUpload({
+    orderId: parent.order_id, deliveryNoteId: parent.delivery_note_id,
+    docType, parentInvoiceId,
+    header: header || {}, totals, lines: lines || [],
+    zatca: header && header.zatca, extracted: null, validation: { adjustment: true, reason },
+    status: 'Matched', createdBy: actor,
+  });
+  await logInvoiceAudit(parentInvoiceId, parent.order_id, docType, { note: reason, detail: { note_id: note.id, number: note.invoice_number, grand_total: note.grand_total }, actor });
+  return note;
 }
 
 // Re-validate the stored invoice against its delivery note at the VALUE level
@@ -177,6 +469,7 @@ export async function matchInvoiceToDeliveryNote(invoiceId) {
   const { error } = await c.from('supplier_invoices')
     .update({ status, match_summary: cmp, validation_summary: cmp, updated_at: new Date().toISOString() }).eq('id', invoiceId);
   if (error) throw error;
+  if (status === 'Matched' && inv.delivery_note_id) { try { await markDnReadyForDelivery(inv.delivery_note_id, {}); } catch (e) { /* best-effort */ } }
   return { status, summary: cmp, matched: cmp.ok };
 }
 

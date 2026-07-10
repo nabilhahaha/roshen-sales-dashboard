@@ -2,12 +2,24 @@
 // persistence of named column mappings (reused on the next import).
 // Persisted in localStorage (per browser) — no schema change required.
 
+// Field catalogue — mirrors the columns of the real supplier PI document
+// (No. / Item Code / Code / Item name / Unit of measure / Number of Units /
+// Box,Pcs / Price / Discount % / Price after Discount / Taxable / VAT% /
+// VAT Amt / Amount).
 export const ERP_FIELDS = [
   { key: 'item_code', label: 'Item Code', required: true },
-  { key: 'roshen_id', label: 'Roshen ID', required: true },
-  { key: 'quantity', label: 'Quantity', required: true },
-  { key: 'description', label: 'Description' },
+  { key: 'roshen_id', label: 'Roshen Code', required: true },
+  { key: 'quantity', label: 'Ordered Qty (Box/Pcs)', required: true },
+  { key: 'description', label: 'Item Description' },
+  { key: 'uom', label: 'Unit of Measure' },
+  { key: 'units_qty', label: 'Number of Units' },
   { key: 'unit_price', label: 'Unit Price' },
+  { key: 'discount_percent', label: 'Discount %' },
+  { key: 'net_unit_price', label: 'Price after Discount' },
+  { key: 'taxable_amount', label: 'Taxable Amount' },
+  { key: 'vat_percent', label: 'VAT %' },
+  { key: 'vat_amount', label: 'VAT Amount' },
+  { key: 'amount', label: 'Total Amount' },
   { key: 'notes', label: 'Notes' },
 ];
 
@@ -42,13 +54,23 @@ export function mappingToIdx(mapByLabel, columns) {
   return byIdx;
 }
 
-// Heuristic auto-mapping from column header text.
+// Heuristic auto-mapping from column header text. Order matters — the more
+// specific document columns (Price after Discount, VAT Amt, Taxable) must
+// claim their headers before the generic price/amount rules run.
 const RULES = [
   [/item\s*code|^sku$|article/i, 'item_code'],
-  [/roshen/i, 'roshen_id'],
-  [/qty|quantity|cases|ordered/i, 'quantity'],
+  [/roshen|^code$/i, 'roshen_id'],
+  [/unit\s*of|measure|^uom$/i, 'uom'],
+  [/number\s*of\s*units/i, 'units_qty'],
+  [/box|carton|ctn|cases|qty|quantity|ordered/i, 'quantity'],
   [/desc|item\s*name|product|name/i, 'description'],
-  [/price|unit\s*price|rate/i, 'unit_price'],
+  [/after\s*discount|net\s*price/i, 'net_unit_price'],
+  [/discount/i, 'discount_percent'],
+  [/taxable/i, 'taxable_amount'],
+  [/vat\s*amt|vat\s*amount/i, 'vat_amount'],
+  [/vat\s*%|vat%|^vat\b/i, 'vat_percent'],
+  [/price|rate/i, 'unit_price'],
+  [/amount|total/i, 'amount'],
   [/note|remark|comment/i, 'notes'],
 ];
 export function suggestMapping(columns) {

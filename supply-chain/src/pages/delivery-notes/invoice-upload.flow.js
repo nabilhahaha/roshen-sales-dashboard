@@ -10,6 +10,7 @@ import { priceIndex } from '../../services/fulfillment/fulfillment.service.js';
 import { parseInvoicePdf } from '../../services/supplier-invoice/supplier-invoice-parser.js';
 import { compareInvoiceToDeliveryNote } from '../../services/supplier-invoice/invoice-compare.js';
 import { createSupplierInvoiceFromUpload } from '../../services/supplier-invoice/supplier-invoice.service.js';
+import { attachOriginalDocument } from '../../services/attachments/attachments.service.js';
 
 // read a File as base64 (no data: prefix)
 const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -25,11 +26,18 @@ function similarity(a, b) {
   let hit = 0; tb.forEach((w) => { if (ta.has(w)) hit++; }); return hit / Math.max(ta.size, tb.length);
 }
 
+// File handoff from the standalone Supplier-Invoice upload: when that screen
+// already has the PDF and resolves the referenced DN, it navigates here and
+// leaves the file so the user doesn't have to select it twice.
+let PENDING_FILE = null;
+export function setPendingInvoiceFile(file) { PENDING_FILE = file; }
+
 export async function startInvoiceUpload(root, ctx, dnId) {
   mount(root, loading('Loading delivery note…'));
   let dn, prices;
   try { dn = await getDeliveryNote(dnId); prices = await priceIndex(dn.order_id).catch(() => ({})); }
   catch (e) { return mount(root, emptyState('⚠', e.message || String(e))); }
+  const returnTo = ctx.params && ctx.params.returnTo === 'supplier-invoices' ? 'supplier-invoices' : null;
 
   // DN lines (binding targets) with expected value from PO price
   const dnLines = dn.items.map((it) => {
@@ -43,13 +51,14 @@ export async function startInvoiceUpload(root, ctx, dnId) {
 
   const state = { parsed: null, file: null, binds: {} };
 
-  uploadStep();
+  if (PENDING_FILE) { const f = PENDING_FILE; PENDING_FILE = null; handle(f); }
+  else uploadStep();
 
   function uploadStep() {
     mount(root, `
       <div class="sc-card-h"><h3>📄 Upload Supplier Invoice · ${esc(dn.dn_number)}</h3><div class="sc-spacer"></div>
         <button class="sc-btn sm ghost" data-act="back">← Delivery Note</button></div>
-      <div class="sc-card"><p style="font-size:12.5px;color:var(--text-secondary);margin-top:0">The supplier invoice is received as a PDF. Upload it — the ERP stores the original for audit, extracts the data, and validates it against this delivery note. (ZATCA XML support can be added later.)</p>
+      <div class="sc-card"><p style="font-size:12.5px;color:var(--text-secondary);margin-top:0">Upload the supplier invoice PDF. The original file is saved with the invoice, and the amounts are checked against this delivery note.</p>
         <div class="erp-drop" data-el="drop">
           <div style="font-size:40px;opacity:.6">🧾</div>
           <div style="margin-top:10px;font-weight:700;color:var(--text-primary)">Drop the supplier invoice PDF here or click to browse</div>
@@ -88,7 +97,7 @@ export async function startInvoiceUpload(root, ctx, dnId) {
   function reviewStep() {
     const p = state.parsed;
     const hf = (label, key, val, type) => `<div class="sc-field"><label>${label}</label><input class="sc-input" data-h="${key}" ${type ? `type="${type}"` : ''} value="${esc(val == null ? '' : val)}"></div>`;
-    const bindOpts = (sel) => ['<option value="">— unbound —</option>']
+    const bindOpts = (sel) => ['<option value="">— not matched —</option>']
       .concat(dnLines.map((d) => `<option value="${esc(d.key)}" ${sel === d.key ? 'selected' : ''}>${esc(d.roshen_id || d.item_code)} · ${esc((d.description || '').slice(0, 40))} (${qty(d.cartons)} ctn)</option>`)).join('');
 
     const lineRows = p.lines.map((l, i) => `<tr>
@@ -104,22 +113,36 @@ export async function startInvoiceUpload(root, ctx, dnId) {
       <div class="sc-card-h"><h3>🧾 Verify Supplier Invoice · ${esc(dn.dn_number)}</h3><div class="sc-spacer"></div>
         <span class="mono" style="font-size:11px;color:var(--text-muted)">${esc(state.file.name)}</span>
         <button class="sc-btn sm ghost" style="margin-left:10px" data-act="reupload">← Re-upload</button></div>
-      <div class="sc-card"><div class="sc-card-h"><h3>Extracted header</h3><div class="sc-spacer"></div>
-        <span style="font-size:11px;color:var(--text-muted)">extracted from the PDF — correct anything before validating</span></div>
+      <div class="sc-card"><div class="sc-card-h"><h3>Invoice details</h3><div class="sc-spacer"></div>
+        <span style="font-size:11px;color:var(--text-muted)">read from the PDF — correct anything before checking</span></div>
         <div class="sc-form-grid">
           ${hf('Invoice Number', 'invoice_number', p.header.invoice_number)}
           ${hf('Invoice Date', 'invoice_date', p.header.invoice_date, 'date')}
+          ${hf('Supply Date', 'supply_date', p.header.supply_date, 'date')}
           ${hf('Supplier', 'supplier', p.header.supplier)}
           ${hf('Buyer', 'buyer', p.header.buyer)}
           ${hf('PO Reference', 'po_reference', p.header.po_reference)}
           ${hf('DN Reference', 'dn_reference', p.header.dn_reference)}
+          ${hf('Due Date', 'due_date', p.header.due_date, 'date')}
+          ${hf('Payment Terms', 'payment_terms', p.header.payment_terms)}
+          ${hf('Notes (document)', 'doc_notes', p.header.doc_notes)}
           ${hf('Total Taxable (net)', 'taxable', p.totals.taxable, 'number')}
           ${hf('Total VAT', 'vat', p.totals.vat, 'number')}
           ${hf('Grand Total', 'grand', p.totals.grand, 'number')}
         </div></div>
+      <div class="sc-card"><div class="sc-card-h"><h3>🧾 ZATCA fields</h3><div class="sc-spacer"></div>
+        <span style="font-size:11px;color:var(--text-muted)">e-invoicing identifiers — stored with the invoice for later ZATCA submission</span></div>
+        <div class="sc-form-grid">
+          ${hf('Seller VAT (TRN)', 'z_seller_vat', (p.header.zatca || {}).seller_vat || p.header.seller_vat)}
+          ${hf('Seller CR', 'z_seller_cr', (p.header.zatca || {}).seller_cr || p.header.seller_cr)}
+          ${hf('Buyer VAT (TRN)', 'z_buyer_vat', (p.header.zatca || {}).buyer_vat || p.header.buyer_vat)}
+          ${hf('Buyer CR', 'z_buyer_cr', (p.header.zatca || {}).buyer_cr)}
+          ${hf('Invoice Type Code', 'z_type_code', (p.header.zatca || {}).invoice_type_code || '388')}
+          ${hf('Payment Means', 'z_payment_means', (p.header.zatca || {}).payment_means)}
+        </div></div>
       <div class="sc-card"><div class="sc-card-h"><h3>Line items</h3><div class="sc-spacer"></div>
-        <span style="font-size:11px;color:var(--text-muted)">bind each invoice line to the delivery-note SKU it corresponds to</span></div>
-        <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>#</th><th>Description (invoice)</th><th class="num">Unit</th><th class="num">Qty</th><th class="num">Taxable</th><th class="num">VAT</th><th>Bind to DN SKU</th></tr></thead><tbody>${lineRows}</tbody></table></div></div>
+        <span style="font-size:11px;color:var(--text-muted)">match each invoice line to the delivered item</span></div>
+        <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>#</th><th>Description (invoice)</th><th class="num">Unit</th><th class="num">Qty</th><th class="num">Taxable</th><th class="num">VAT</th><th>Match to Delivered Item</th></tr></thead><tbody>${lineRows}</tbody></table></div></div>
       <div class="sc-card" data-el="validation"></div>
       <div class="sc-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center" data-el="actions"></div>`);
 
@@ -150,18 +173,18 @@ export async function startInvoiceUpload(root, ctx, dnId) {
       <td>${typeof c.actual === 'number' ? money(c.actual) : esc(c.actual)}</td>
       <td>${c.ok == null ? '<span class="sc-badge none">n/a</span>' : c.ok ? '<span class="sc-badge confirmed">✓</span>' : '<span class="sc-badge closed">✗</span>'}</td></tr>`;
     root.querySelector('[data-el="validation"]').innerHTML = `
-      <div class="sc-card-h"><h3>📊 Validation vs Delivery Note</h3><div class="sc-spacer"></div>
+      <div class="sc-card-h"><h3>📊 Check vs Delivery Note</h3><div class="sc-spacer"></div>
         ${cmp.ok ? '<span class="sc-badge confirmed">✓ Matches</span>' : '<span class="sc-badge closed">⚠ Differences</span>'}</div>
       <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Check</th><th>Expected (DN/PO)</th><th>Invoice</th><th>Result</th></tr></thead><tbody>${['dn_ref', 'po_ref', 'value', 'vat', 'lines'].map((k) => row(cmp.checks.find((c) => c.key === k))).join('')}</tbody></table></div>
       <div style="font-size:12px;color:var(--text-secondary);margin-top:8px">DN expected net: <b>${money(cmp.expectedNet)} SAR</b> · invoice net: <b>${money(cmp.invoiceNet)} SAR</b> · difference: <b style="color:${Math.abs(cmp.valueDiff) < 1 ? 'inherit' : '#F76707'}">${money(cmp.valueDiff)} SAR</b></div>`;
 
     const actions = root.querySelector('[data-el="actions"]');
     if (cmp.ok) {
-      actions.innerHTML = '<button class="sc-btn green" data-act="save-matched">✅ Save &amp; Match Invoice</button><span style="font-size:12px;color:var(--text-secondary)">Storing the invoice as Matched unlocks Goods Receiving for this delivery note.</span>';
+      actions.innerHTML = '<button class="sc-btn green" data-act="save-matched">✅ Confirm Match</button><span style="font-size:12px;color:var(--text-secondary)">A matched invoice lets this delivery be received into the warehouse.</span>';
     } else {
       actions.innerHTML = '<button class="sc-btn primary" data-act="save-disputed">💾 Save as Disputed</button>' +
         '<button class="sc-btn ghost" data-act="save-override">Accept differences &amp; Match</button>' +
-        '<span style="font-size:12px;color:var(--text-secondary)">Review the differences. Disputed keeps the record but does not unlock receiving; Accept records an override (audited).</span>';
+        '<span style="font-size:12px;color:var(--text-secondary)">Review the differences. A disputed invoice cannot be received; accepting the differences is recorded.</span>';
     }
     wire(actions, {
       'save-matched': () => save('Matched', false),
@@ -190,12 +213,21 @@ export async function startInvoiceUpload(root, ctx, dnId) {
         };
       });
       const validation = { ...state.cmp, override: !!override };
-      await createSupplierInvoiceFromUpload({
+      const zatca = {
+        seller_vat: p.header.z_seller_vat || null, seller_cr: p.header.z_seller_cr || null,
+        buyer_vat: p.header.z_buyer_vat || null, buyer_cr: p.header.z_buyer_cr || null,
+        invoice_type_code: p.header.z_type_code || '388', payment_means: p.header.z_payment_means || null,
+      };
+      const invRow = await createSupplierInvoiceFromUpload({
         orderId: dn.order_id, deliveryNoteId: dn.id, header: p.header, totals: p.totals,
-        lines, document: doc, extracted: { header: p.header, totals: p.totals, lines: p.lines }, validation, status, createdBy: 'invoice-upload',
+        lines, document: doc, zatca, docType: 'invoice',
+        extracted: { header: p.header, totals: p.totals, lines: p.lines }, validation, status, createdBy: 'invoice-upload',
       });
+      if (!(await attachOriginalDocument('supplier_invoice', invRow.id, state.file, 'invoice-upload')))
+        toast('Invoice saved, but attaching the original PDF failed — add it from the Attachments panel.', 'info');
       toast('Supplier invoice saved · ' + status, status === 'Matched' ? 'ok' : 'info');
-      ctx.navigate('delivery-notes', { view: 'detail', dnId });
+      if (returnTo === 'supplier-invoices') ctx.navigate('supplier-invoices');
+      else ctx.navigate('delivery-notes', { view: 'detail', dnId });
     } catch (e) {
       toast('Save failed: ' + (e.message || e), 'err'); saving = false;
       qsa('[data-el="actions"] .sc-btn', root).forEach((b) => (b.disabled = false));

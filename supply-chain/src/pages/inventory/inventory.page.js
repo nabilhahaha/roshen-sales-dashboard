@@ -32,15 +32,16 @@ export async function render(root, ctx) {
   }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:22px">No stock on hand yet. Release a goods receipt to add inventory.</td></tr>';
 
   const moveRows = moves.slice(0, 60).map((m) => `<tr>
-    <td>${esc((m.created_at || '').slice(0, 10))}</td>
+    <td>#${m.id} · ${esc((m.created_at || '').slice(0, 10))}</td>
     <td><span class="sc-badge ${m.cases_delta >= 0 ? 'confirmed' : 'closed'}">${esc(m.movement_type)}</span></td>
-    <td class="mono">${esc(m.roshen_id || m.item_code)}</td>
+    <td class="mono">${esc(m.roshen_id || m.item_code)}${m.batch_id ? `<div style="font-size:10.5px;color:var(--text-muted)">batch #${m.batch_id}</div>` : ''}</td>
     <td class="mono">${esc(m.batch_no || '—')}</td>
-    <td>${esc(m.expiry_date || '—')}</td>
     <td>${esc(m.warehouse || '—')}</td>
-    <td class="num">${m.cases_delta >= 0 ? '+' : ''}${qty(m.cases_delta)}</td>
-    <td class="mono">${esc(m.reference || '')}</td></tr>`).join('')
-    || '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:18px">No movements recorded.</td></tr>';
+    <td class="num" style="color:#2FB344">${Number(m.qty_in) ? '+' + qty(m.qty_in) : ''}</td>
+    <td class="num" style="color:#E03131">${Number(m.qty_out) ? '−' + qty(m.qty_out) : ''}</td>
+    <td class="num"><b>${m.running_balance != null ? qty(m.running_balance) : '—'}</b></td>
+    <td class="mono" style="font-size:11px">${esc(m.reference_module || '')}${m.reference_module ? ' · ' : ''}${esc(m.reference || '')}</td></tr>`).join('')
+    || '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:18px">No transactions recorded.</td></tr>';
 
   mount(root, `
     <div class="erp-kpi-row">
@@ -51,9 +52,9 @@ export async function render(root, ctx) {
     ${card(`<div class="sc-card-h"><h3>🏬 On-hand by batch (FEFO)</h3><div class="sc-spacer"></div>
       <span style="font-size:11px;color:var(--text-muted)">earliest expiry first · shelf life computed live</span></div>
       ${tableWrap(`<table class="sc-table"><thead><tr><th>Item</th><th>Batch / Lot</th><th>Expiry</th><th>Remaining shelf life</th><th>Warehouse</th><th class="num">Cases</th></tr></thead><tbody>${invRows}</tbody></table>`)}`)}
-    ${card(`<div class="sc-card-h"><h3>📜 Movement ledger</h3><div class="sc-spacer"></div>
-      <span style="font-size:11px;color:var(--text-muted)">source of truth · latest 60</span></div>
-      ${tableWrap(`<table class="sc-table"><thead><tr><th>Date</th><th>Type</th><th>Item</th><th>Batch</th><th>Expiry</th><th>Warehouse</th><th class="num">Δ Cases</th><th>Ref</th></tr></thead><tbody>${moveRows}</tbody></table>`)}`)}
+    ${card(`<div class="sc-card-h"><h3>📜 Transaction ledger</h3><div class="sc-spacer"></div>
+      <span style="font-size:11px;color:var(--text-muted)">every stock movement, newest first · latest 60</span></div>
+      ${tableWrap(`<table class="sc-table"><thead><tr><th>Txn</th><th>Type</th><th>Item</th><th>Batch</th><th>Warehouse</th><th class="num">In</th><th class="num">Out</th><th class="num">Balance</th><th>Reference</th></tr></thead><tbody>${moveRows}</tbody></table>`)}`)}
   `);
   delegate(root, {});
 }

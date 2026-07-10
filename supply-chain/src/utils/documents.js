@@ -13,7 +13,7 @@ function printDoc(title, meta, table) {
     .kv div{border:1px solid #e4e8ef;border-radius:8px;padding:8px 10px}.kv span{display:block;font-size:10px;color:#7c8b9e;text-transform:uppercase;letter-spacing:.5px}.kv b{font-size:13px}
     table{width:100%;border-collapse:collapse;font-size:12px;margin-top:10px}th,td{border:1px solid #e4e8ef;padding:7px 9px;text-align:left}th{background:#f4f6fa;font-size:10px;text-transform:uppercase;letter-spacing:.5px}
     .r{text-align:right}tfoot td{font-weight:800;background:#faf6f2}@media print{body{padding:0}}
-  </style></head><body><div class="sub">Roshen Supply Chain</div><h1>${esc(title)}</h1>${meta}${table}
+  </style></head><body><div class="sub">Roshen / Relia Supply Chain</div><h1>${esc(title)}</h1>${meta}${table}
     <p style="margin-top:24px;font-size:11px;color:#7c8b9e">Generated ${esc(today())}</p></body></html>`;
 }
 function openPrint(html) {
@@ -55,6 +55,50 @@ export function printPi(pi, orderNumber) {
   return openPrint(printDoc('Proforma Invoice ' + (pi.pi_number || ''),
     kv({ 'PI Number': pi.pi_number, 'PI Date': pi.pi_date, Supplier: pi.supplier, Customer: pi.customer, Currency: pi.currency, 'Linked Order': orderNumber || '—', Status: pi.status }),
     `<table><thead><tr><th>#</th><th>Code</th><th>Roshen</th><th>Description</th><th class="r">Cases</th><th class="r">Price/Case</th><th class="r">Taxable</th><th class="r">VAT%</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="6" class="r">TOTAL</td><td class="r">${money(pi.total_taxable)}</td><td class="r"></td><td class="r">${money(pi.grand_total)} ${esc(pi.currency || '')}</td></tr></tfoot></table>`));
+}
+
+// Printable Delivery Note. dn = getDeliveryNote() shape (items → batches).
+export function printDeliveryNote(dn) {
+  const rows = (dn.items || []).flatMap((it) => {
+    const batches = it.batches && it.batches.length ? it.batches : [{}];
+    return batches.map((b, i) => `<tr>
+      <td>${i === 0 ? esc(it.item_code || '') : ''}</td>
+      <td>${i === 0 ? esc(it.roshen_id || '') : ''}</td>
+      <td>${i === 0 ? esc(it.description || '') : ''}</td>
+      <td>${esc(b.batch_no || '—')}</td>
+      <td>${esc(b.manufacturing_date || '—')}</td>
+      <td>${esc(b.expiry_date || '—')}</td>
+      <td class="r">${qty(b.cases)}</td>
+      <td class="r">${b.boxes == null ? '' : qty(b.boxes)}</td>
+      <td class="r">${b.pieces == null ? '' : qty(b.pieces)}</td>
+      <td>${esc(b.qc_status || '')}</td></tr>`);
+  }).join('');
+  const totalCases = (dn.items || []).reduce((a, it) => a + (it.batches || []).reduce((x, b) => x + Number(b.cases || 0), 0), 0);
+  return openPrint(printDoc('Delivery Note ' + (dn.dn_number || ''),
+    kv({ 'DN Number': dn.dn_number, 'DN Date': dn.dn_date, Supplier: dn.supplier, 'PO Reference': dn.po_reference || '—', 'Linked Order': (dn.order && dn.order.order_number) || '—', Warehouse: (dn.order && dn.order.warehouse) || '—', Status: dn.status }),
+    `<table><thead><tr><th>Item Code</th><th>Roshen</th><th>Description</th><th>Batch/Lot</th><th>Mfg Date</th><th>Expiry</th><th class="r">Cases</th><th class="r">Boxes</th><th class="r">Pcs</th><th>QC</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="6" class="r">TOTAL CARTONS</td><td class="r">${qty(totalCases)}</td><td colspan="3"></td></tr></tfoot></table>`));
+}
+
+// Printable supplier invoice / credit note / debit note. inv = getInvoice() shape.
+export function printSupplierInvoice(inv) {
+  const its = (inv.items || []).slice().sort((a, b) => (a.line_no || 0) - (b.line_no || 0));
+  const title = (inv.doc_type === 'credit_note' ? 'Credit Note ' : inv.doc_type === 'debit_note' ? 'Debit Note ' : 'Supplier Invoice ') + (inv.invoice_number || '');
+  const z = inv.zatca || {};
+  const rows = its.map((l) => `<tr>
+    <td>${esc(l.line_no || '')}</td><td>${esc(l.roshen_id || l.item_code || '')}</td><td>${esc(l.description || '')}</td>
+    <td class="r">${qty(l.invoiced_cases)}</td><td class="r">${money(l.case_price)}</td>
+    <td class="r">${money(l.taxable_amount)}</td><td class="r">${l.vat_percent == null ? '' : qty(l.vat_percent) + '%'}</td>
+    <td class="r">${money(l.vat_amount)}</td><td class="r">${money(l.line_total)}</td></tr>`).join('');
+  return openPrint(printDoc(title,
+    kv({
+      'Document': inv.doc_type === 'credit_note' ? 'Credit Note' : inv.doc_type === 'debit_note' ? 'Debit Note' : 'Tax Invoice',
+      'Number': inv.invoice_number, 'Invoice Date': inv.invoice_date || '—', 'Supply Date': inv.supply_date || '—',
+      Supplier: inv.supplier || '—', Buyer: inv.buyer || '—', 'PO Reference': (inv.order && inv.order.order_number) || '—',
+      'DN Reference': inv.dn_reference || '—', 'Seller VAT': z.seller_vat || '—', 'Buyer VAT': z.buyer_vat || '—',
+      Currency: inv.currency || 'SAR', Status: inv.status,
+    }),
+    `<table><thead><tr><th>#</th><th>Roshen / Code</th><th>Description</th><th class="r">Cases</th><th class="r">Price/Case</th><th class="r">Taxable</th><th class="r">VAT%</th><th class="r">VAT</th><th class="r">Total</th></tr></thead><tbody>${rows}</tbody>
+      <tfoot><tr><td colspan="5" class="r">TOTAL</td><td class="r">${money(inv.total_taxable)}</td><td class="r"></td><td class="r">${money(inv.total_vat)}</td><td class="r">${money(inv.grand_total)} ${esc(inv.currency || 'SAR')}</td></tr></tfoot></table>`));
 }
 
 export function exportErrorReport(failed, filename) {

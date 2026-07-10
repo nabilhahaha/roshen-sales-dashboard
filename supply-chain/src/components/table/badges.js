@@ -2,7 +2,7 @@
 // screens: shelf-life colour band, QC state, and generic fulfillment status.
 import { esc, qty } from '../../utils/format.js';
 import { BAND_COLOR, humanDuration } from '../../models/shelf-life.js';
-import { STATUS_VARIANT, QC_COLOR } from '../../models/fulfillment-status.js';
+import { STATUS_VARIANT, STATUS_DISPLAY, QC_COLOR } from '../../models/fulfillment-status.js';
 
 // Coloured remaining shelf-life chip from a shelfLife() result.
 export function shelfChip(sl) {
@@ -16,7 +16,7 @@ export const qcBadge = (s) =>
   `<span class="sc-badge" style="background:${(QC_COLOR[s] || '#8FA3BD')}22;color:${QC_COLOR[s] || '#8FA3BD'};border-color:${(QC_COLOR[s] || '#8FA3BD')}55">${esc(s || '—')}</span>`;
 
 export const statusBadge = (s) =>
-  `<span class="sc-badge ${STATUS_VARIANT[s] || 'none'}">${esc(s || '—')}</span>`;
+  `<span class="sc-badge ${STATUS_VARIANT[s] || 'none'}">${esc(STATUS_DISPLAY[s] || s || '—')}</span>`;
 
 // A compact ordered→delivered→received cell.
 export const flowCell = (o, d, r) =>

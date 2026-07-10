@@ -42,11 +42,19 @@ export const PO_FULFILLMENT = {
 };
 
 // Badge variant (maps to existing .sc-badge classes) for each status value.
+// Business-facing display names for stored status values (display only —
+// the stored values and the workflow never change).
+export const STATUS_DISPLAY = {
+  Imported: 'New',
+  'Receiving Review': 'Being Received',
+  'Partially Released': 'Partly Released',
+};
+
 export const STATUS_VARIANT = {
   // DN
-  Imported: 'pi', 'Receiving Review': 'closed', Received: 'confirmed', Cancelled: 'draft',
+  Imported: 'pi', 'Ready for Delivery': 'approved', 'In Transit': 'pi', 'Receiving Review': 'closed', Received: 'confirmed', Cancelled: 'draft', Reversed: 'draft', Draft: 'draft',
   // SI
-  Matched: 'confirmed', Disputed: 'closed',
+  Matched: 'confirmed', 'Partially Matched': 'pi', Disputed: 'closed', Replaced: 'draft', 'Pending Matching': 'pi',
   // GR / QC
   'Pending QC': 'closed', 'Partially Released': 'pi', Released: 'confirmed', Rejected: 'draft',
   // PO fulfillment

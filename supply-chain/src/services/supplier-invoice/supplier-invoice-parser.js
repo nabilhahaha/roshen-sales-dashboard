@@ -41,6 +41,9 @@ export function parseInvoiceLines(lines) {
 
   const invoice_number = (find(/Invoice\s*#\s*:?\s*([A-Za-z0-9][\w\-\/]+)/) || [])[1] || null;
   const invoice_date = isoDate((find(/Invoice\s*Issue\s*Date\s*:?\s*(\d{1,2}\s+[A-Za-z]{3,}\s+\d{4})/i) || [])[1]);
+  const due_date = isoDate((find(/Due\s*Date\s*:?\s*(\d{1,2}\s+[A-Za-z]{3,}\s+\d{4})/i) || [])[1]);
+  // payment terms, e.g. "Terms: Net 45"
+  const payment_terms = ((find(/\bTerms\s*:\s*([A-Za-z0-9][A-Za-z0-9 ]{1,22})/) || [])[1] || '').trim() || null;
   // title-case run after "Company" (stops before single-letter bidi noise)
   const supplier = ((find(/Company\s+([A-Z][A-Za-z&'.-]+(?:\s+[A-Z][A-Za-z&'.-]+)*)/) || [])[1] || '').trim() || null;
   // buyer: a "... Company" title-case run that is not the seller (best-effort)
@@ -48,6 +51,26 @@ export function parseInvoiceLines(lines) {
   for (const l of lines) {
     const m = l.text.match(/([A-Z][A-Za-z&'.-]+(?:\s+[A-Z][A-Za-z&'.-]+){1,3}\s+Company)/);
     if (m && (!supplier || !m[1].includes(supplier))) { buyer = m[1].trim(); break; }
+  }
+
+  // ZATCA registrations: the document shows TRNs seller-first; the CRN sits in
+  // the buyer/seller block wherever the layout put it — captured verbatim.
+  const trns = [];
+  lines.forEach((l) => (l.text.match(/TRN\s*(\d{10,15})/g) || []).forEach((t) => {
+    const n = t.replace(/\D/g, ''); if (!trns.includes(n)) trns.push(n);
+  }));
+  const seller_vat = trns[0] || null;
+  const buyer_vat = trns[1] || null;
+  const seller_cr = (find(/CRN\s*(\d{6,15})/) || [])[1] || null;
+
+  // Notes block: the first free-text line after the "Notes" label.
+  let doc_notes = null;
+  const notesIdx = lines.findIndex((l) => /^Notes\b/.test(l.text));
+  if (notesIdx >= 0) {
+    for (let i = notesIdx + 1; i < lines.length; i++) {
+      const t = lines[i].text.trim();
+      if (t && !/^\d+$/.test(t)) { doc_notes = t; break; }
+    }
   }
 
   // Subject line carries the PO / DN references (e.g. "KS-417 DN-761")
@@ -92,7 +115,11 @@ export function parseInvoiceLines(lines) {
   });
 
   return {
-    header: { invoice_number, invoice_date, supplier, buyer, po_reference, dn_reference, currency: 'SAR' },
+    header: {
+      invoice_number, invoice_date, due_date, payment_terms, supplier, buyer,
+      seller_vat, seller_cr, buyer_vat, doc_notes,
+      po_reference, dn_reference, currency: 'SAR',
+    },
     totals, lines: items,
     rawText: lines.map((l) => l.text).filter(Boolean).join('\n'),
   };

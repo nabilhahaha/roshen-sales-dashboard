@@ -39,18 +39,18 @@ async function renderList(root, ctx) {
       <td>${inv}</td>
       <td>${gr}</td>
     </tr>`;
-  }).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:22px">No delivery notes yet — import one to begin receiving.</td></tr>';
+  }).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:22px">No deliveries yet — add one when the supplier sends a delivery note.</td></tr>';
 
   mount(root, `
     <div class="sc-card-h"><h3>🚚 Delivery Notes</h3>
       <span class="sc-badge none" style="margin-left:8px">${dns.length}</span>
       <div class="sc-spacer"></div>
-      <button class="sc-btn primary" data-act="import">📥 Import Delivery Note</button></div>
+      <button class="sc-btn primary" data-act="import">➕ Add Delivery Note</button></div>
     <div class="sc-card">
-      <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">A purchase order may receive many partial delivery notes. Each delivery note needs one matched supplier invoice before its goods receipt can be released.</p>
+      <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">A PI can have several deliveries. Each delivery needs a matched supplier invoice before it can be received into the warehouse.</p>
       ${tableWrap(`<table class="sc-table"><thead><tr>
-        <th>DN #</th><th>Date</th><th>PO</th><th>Supplier</th><th class="num">Cartons</th>
-        <th>DN Status</th><th>Invoice</th><th>Goods Receipt</th></tr></thead>
+        <th>Delivery Note</th><th>Date</th><th>PI</th><th>Supplier</th><th class="num">Cartons</th>
+        <th>Status</th><th>Invoice</th><th>Warehouse Receipt</th></tr></thead>
         <tbody>${rows}</tbody></table>`)}
     </div>`);
 

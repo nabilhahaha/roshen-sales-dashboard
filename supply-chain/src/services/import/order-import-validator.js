@@ -57,15 +57,35 @@ export function validateImport(rows, mapByIdx, skus) {
     if (!(qty > 0)) { errors.push({ rowNo, code: sku.item_code, roshen: sku.roshen_id || '—', qty: rawQty, reason: 'Quantity must be greater than zero' }); return; }
 
     const key = sku.item_code;
-    if (merged[key]) { merged[key].ordered_cases += qty; merged[key].merges.push(qty); duplicatesMerged++; }
-    else {
+    const num = (f) => (has(f) ? parseNumber(get(row, f)) : null);
+    if (merged[key]) {
+      const m = merged[key];
+      m.ordered_cases += qty; m.merges.push(qty); duplicatesMerged++;
+      // additive document amounts follow the merged quantity
+      ['units_qty', 'taxable_amount', 'vat_amount', 'amount'].forEach((f) => {
+        const v = num(f); if (v != null) m[f] = (Number(m[f]) || 0) + v;
+      });
+    } else {
       const mappedDesc = get(row, 'description');
+      const taxable = num('taxable_amount');
+      // price per case from the document itself when it carries amounts;
+      // the SKU Master price is only a fallback for bare quantity lists.
+      const docCase = taxable != null && qty > 0 ? +(taxable / qty).toFixed(4) : null;
       merged[key] = {
         item_code: sku.item_code,
         roshen_id: sku.roshen_id,
-        item_description: sku.item_description || mappedDesc,
-        price_case: Number(sku.price_case),
+        item_description: mappedDesc || sku.item_description,
+        price_case: docCase != null ? docCase : Number(sku.price_case),
         ordered_cases: qty,
+        uom: get(row, 'uom') || null,
+        units_qty: num('units_qty'),
+        unit_price: num('unit_price'),
+        discount_percent: num('discount_percent'),
+        net_unit_price: num('net_unit_price'),
+        taxable_amount: taxable,
+        vat_percent: num('vat_percent'),
+        vat_amount: num('vat_amount'),
+        amount: num('amount'),
         merges: [qty],
       };
     }

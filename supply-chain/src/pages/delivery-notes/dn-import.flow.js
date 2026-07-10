@@ -5,6 +5,7 @@ import { mount, wire, delegate, qsa } from '../../utils/dom.js';
 import { esc, qty, today } from '../../utils/format.js';
 import { loading, emptyState } from '../../components/table/table.js';
 import { toast } from '../../components/notifications/toast.js';
+import { modal } from '../../components/modal/modal.js';
 import { orderBadge } from '../../components/table/table.js';
 import { shelfChip } from '../../components/table/badges.js';
 import { listSkus, indexByRoshen, indexByCode } from '../../services/sku/sku.service.js';
@@ -13,6 +14,7 @@ import { parseDeliveryNote } from '../../services/delivery-note/dn-parser.js';
 import { DN_MAPPING } from '../../services/delivery-note/dn-mapping.js';
 import * as ME from '../../services/import/mapping-engine.js';
 import { buildDeliveryNote } from '../../services/delivery-note/dn-validator.js';
+import { attachOriginalDocument } from '../../services/attachments/attachments.service.js';
 
 export async function startDnImport(root, ctx) {
   mount(root, loading('Loading orders…'));
@@ -29,11 +31,11 @@ export async function startDnImport(root, ctx) {
     const rows = orders.map((o) => `<tr class="sc-row-link" data-act="pick" data-id="${o.id}">
       <td class="mono"><b>${esc(o.order_number)}</b></td><td>${esc(o.order_date || '')}</td>
       <td>${esc(o.supplier || '')}</td><td>${esc(o.warehouse || '')}</td><td>${orderBadge(o.status)}</td>
-    </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:22px">No orders are ready to receive. A PO must reach “PI Approved” or a delivery stage first.</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:22px">No PIs are ready for deliveries yet — approve the PI first.</td></tr>';
     mount(root, `
-      <div class="sc-card-h"><h3>📥 Import Delivery Note</h3><div class="sc-spacer"></div>
+      <div class="sc-card-h"><h3>➕ Add Delivery Note</h3><div class="sc-spacer"></div>
         <button class="sc-btn sm ghost" data-act="cancel">← Delivery Notes</button></div>
-      <div class="sc-card"><div class="sc-card-h" style="margin-bottom:8px"><b>1. Choose the Purchase Order this delivery belongs to</b></div>
+      <div class="sc-card"><div class="sc-card-h" style="margin-bottom:8px"><b>1. Choose the PI this delivery belongs to</b></div>
         <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Order #</th><th>Date</th><th>Supplier</th><th>Warehouse</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></div>
       </div>`);
     delegate(root, {
@@ -45,13 +47,13 @@ export async function startDnImport(root, ctx) {
   // ---- step 2: upload ----
   function uploadStep() {
     mount(root, `
-      <div class="sc-card-h"><h3>📥 Import Delivery Note · ${esc(state.order.order_number)}</h3><div class="sc-spacer"></div>
-        <button class="sc-btn sm ghost" data-act="back">← Change PO</button></div>
+      <div class="sc-card-h"><h3>➕ Add Delivery Note · ${esc(state.order.order_number)}</h3><div class="sc-spacer"></div>
+        <button class="sc-btn sm ghost" data-act="back">← Change PI</button></div>
       <div class="sc-card"><div class="sc-card-h" style="margin-bottom:8px"><b>2. Upload the supplier Delivery Note Excel</b></div>
         <div class="erp-drop" data-el="drop">
           <div style="font-size:40px;opacity:.6">📄</div>
           <div style="margin-top:10px;font-weight:700;color:var(--text-primary)">Drop the DN .xlsx here or click to browse</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-top:4px">Columns are mapped dynamically; the same SKU may appear in multiple batches.</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:4px">The file’s columns are matched automatically — you can adjust them in the next step.</div>
           <input type="file" accept=".xlsx,.xls" data-el="file" style="display:none">
         </div></div>`);
     const drop = root.querySelector('[data-el="drop"]'); const file = root.querySelector('[data-el="file"]');
@@ -71,7 +73,7 @@ export async function startDnImport(root, ctx) {
       try { state.parsed = parseDeliveryNote(e.target.result, window.XLSX); }
       catch (err) { return toast('Could not read Excel: ' + (err.message || err), 'err'); }
       if (!state.parsed.rows.length) return toast('No data rows found', 'err');
-      state.filename = f.name;
+      state.filename = f.name; state.file = f;
       const match = ME.findMatchingMapping(state.parsed.columns, DN_MAPPING);
       state.mapByIdx = match ? ME.mappingToIdx(match.map, state.parsed.columns) : ME.suggestMapping(state.parsed.columns, DN_MAPPING);
       if (match) toast(`Applied saved mapping “${match.name}”`, 'info');
@@ -92,13 +94,13 @@ export async function startDnImport(root, ctx) {
     const savedOpts = saved.length
       ? `<select class="sc-select" data-el="saved" style="max-width:220px"><option value="">Apply saved mapping…</option>${saved.map((m) => `<option value="${esc(m.name)}">${esc(m.name)}</option>`).join('')}</select>` : '';
     mount(root, `
-      <div class="sc-card-h"><h3>🧭 Map Columns · ${esc(state.order.order_number)}</h3><div class="sc-spacer"></div>
+      <div class="sc-card-h"><h3>🧭 Match Columns · ${esc(state.order.order_number)}</h3><div class="sc-spacer"></div>
         <span class="mono" style="color:var(--text-muted);font-size:11px">${esc(state.filename)}</span>
         <button class="sc-btn sm ghost" style="margin-left:10px" data-act="back">← Re-upload</button></div>
       <div class="sc-card"><div class="sc-card-h" style="margin-bottom:10px">
         <span style="font-size:12.5px;color:var(--text-secondary)">Required: <b>Roshen ID</b>, <b>Expiry Date</b>, <b>Cartons</b>. Matching is by Roshen ID / Item Code — never description.</span>
         <div class="sc-spacer"></div>${savedOpts}</div>
-        <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th style="width:40%">Excel Column</th><th></th><th style="width:45%">DN Field</th></tr></thead><tbody>${rows}</tbody></table></div>
+        <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th style="width:40%">Excel Column</th><th></th><th style="width:45%">Delivery Note Field</th></tr></thead><tbody>${rows}</tbody></table></div>
       </div>
       <div class="sc-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
         <button class="sc-btn primary" data-act="review">Continue to Review →</button>
@@ -173,13 +175,17 @@ export async function startDnImport(root, ctx) {
         <div class="sc-table-wrap"><table class="sc-table"><thead><tr><th>Batch / Lot</th><th>Expiry</th><th>Mfg</th><th class="num">Cases</th><th>Remaining shelf life</th><th></th></tr></thead><tbody>${lineRows}</tbody></table></div></div>
       <div class="sc-card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
         <button class="sc-btn primary" data-act="create">✅ Create Delivery Note</button>
-        <span style="font-size:12px;color:var(--text-secondary)">This records a partial delivery against ${esc(state.order.order_number)} and updates the open balance. Extra / over-balance lines are still recorded for review.</span>
+        <span style="font-size:12px;color:var(--text-secondary)">This records the delivery against ${esc(state.order.order_number)} and updates the remaining quantities.</span>
       </div>`);
     wire(root, { back: mapStep, create: doCreate });
   }
 
   let creating = false;
-  async function doCreate() {
+  async function doCreate(arg) {
+    // wire() invokes handlers with the button's data attributes — only an
+    // EXPLICIT boolean true (from the dispute-confirmation modal) may bypass
+    // the PO-quantity guard.
+    const allowOverDelivery = arg === true;
     if (creating) return;                    // guard against double submit
     creating = true;
     const btn = root.querySelector('[data-act="create"]');
@@ -189,14 +195,27 @@ export async function startDnImport(root, ctx) {
       const dn = await createDeliveryNote({
         orderId: state.order.id,
         header: { ...h, source_filename: state.filename, total_cartons: b.summary.totalCartons },
-        lines: b.lines, createdBy: 'dn-import',
+        lines: b.lines, createdBy: 'dn-import', allowOverDelivery,
       });
+      if (!(await attachOriginalDocument('delivery_note', dn.id, state.file, 'dn-import')))
+        toast('DN created, but attaching the original file failed — add it from the Attachments panel.', 'info');
       toast(`Delivery note ${dn.dn_number} created`, 'ok');
       ctx.navigate('delivery-notes', { view: 'detail', dnId: dn.id });
     } catch (e) {
-      toast('Create failed: ' + (e.message || e), 'err');
       creating = false;                      // allow retry on failure
       if (btn) { btn.disabled = false; btn.textContent = '✅ Create Delivery Note'; }
+      if (e && e.code === 'OVER_DELIVERY') {
+        // blocked by the PO-quantity rule — the user may explicitly record the
+        // excess as a disputed over-delivery (it still can never be received)
+        modal('⚠ Delivery exceeds the purchase order', `
+          <p style="font-size:12.5px;color:var(--text-secondary)">${esc(e.message)}</p>
+          <p style="font-size:12.5px;color:var(--text-secondary)">You can record the document anyway: the excess is tracked as a <b>disputed over-delivery</b> and receiving stays capped at the PO quantity — the extra cases can never enter inventory.</p>`, [
+          { label: 'Record as disputed over-delivery', cls: 'primary', onClick: () => doCreate(true) },
+          { label: 'Back — fix quantities', cls: 'ghost' },
+        ]);
+        return;
+      }
+      toast('Create failed: ' + (e.message || e), 'err');
     }
   }
 

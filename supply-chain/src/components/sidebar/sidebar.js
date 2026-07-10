@@ -7,18 +7,21 @@ export function sidebarHtml() {
     <aside class="erp-sidebar">
       <div class="erp-brand">
         <div class="erp-brand-logo">🏭</div>
-        <div class="erp-brand-text"><b>Roshen</b><span>Supply Chain</span></div>
+        <div class="erp-brand-text"><b>Roshen / Relia</b><span>Supply Chain</span></div>
       </div>
       <nav class="erp-nav">
-        ${NAV.map((g) => `
+        ${NAV.map((g) => {
+          const items = g.items.filter((i) => !i.hidden);
+          if (!items.length) return '';
+          return `
           <div class="erp-nav-group">
             <div class="erp-nav-group-title">${esc(g.group)}</div>
-            ${g.items.map((i) => `
-              <a class="erp-nav-item${i.soon ? ' soon' : ''}" data-section="${i.id}" href="#${i.id}">
+            ${items.map((i) => `
+              <a class="erp-nav-item" data-section="${i.id}" href="#${i.id}">
                 <span class="ic">${i.icon}</span><span class="lbl">${esc(i.label)}</span>
-                ${i.soon ? '<span class="soon-tag">soon</span>' : ''}
               </a>`).join('')}
-          </div>`).join('')}
+          </div>`;
+        }).join('')}
       </nav>
       <div class="erp-sidebar-foot">Development build · shares Supabase only</div>
     </aside>`;

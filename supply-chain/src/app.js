@@ -8,14 +8,18 @@ import * as dashboard from './pages/dashboard/dashboard.page.js';
 import * as skuMaster from './pages/sku-master/sku-master.page.js';
 import * as purchaseOrders from './pages/purchase-orders/purchase-orders.page.js';
 import * as orderHistory from './pages/order-history/order-history.page.js';
+import * as openOrders from './pages/open-orders/open-orders.page.js';
 import * as piImport from './pages/pi-import/pi-import.page.js';
 import * as validation from './pages/validation/validation.page.js';
 import * as workflow from './pages/workflow/workflow.page.js';
 import * as importOrder from './pages/purchase-orders/import/import-order.page.js';
 import * as poRevision from './pages/purchase-orders/revision/revision.page.js';
+import * as supplierInvoices from './pages/supplier-invoices/supplier-invoices.page.js';
 import * as deliveryNotes from './pages/delivery-notes/delivery-notes.page.js';
 import * as goodsReceiving from './pages/goods-receiving/goods-receiving.page.js';
 import * as inventory from './pages/inventory/inventory.page.js';
+import * as batchTracking from './pages/batch-tracking/batch-tracking.page.js';
+import * as shipment from './pages/shipment/shipment.page.js';
 import * as placeholder from './pages/placeholder.page.js';
 
 const PAGES = {
@@ -23,14 +27,18 @@ const PAGES = {
   'sku-master': skuMaster,
   'purchase-orders': purchaseOrders,
   'order-history': orderHistory,
+  'open-orders': openOrders,
   'import-order': importOrder,
   'po-revision': poRevision,
   'pi-import': piImport,
   validation,
   workflow,
+  'supplier-invoices': supplierInvoices,
   'delivery-notes': deliveryNotes,
   'goods-receiving': goodsReceiving,
   inventory,
+  'batch-tracking': batchTracking,
+  shipment,
 };
 
 // routes reachable by the router but not shown as sidebar items
@@ -40,7 +48,8 @@ let shell = null;
 let currentCtx = null;
 
 function navigate(section, params) {
-  if (!isSection(section) && !PAGES[section]) section = 'dashboard';
+  // Purchase Orders is the master document and the workflow's starting point.
+  if (!isSection(section) && !PAGES[section]) section = 'purchase-orders';
   shell.setActive(EXTRA_ROUTES[section] || section);
   try { history.replaceState(null, '', '#' + section); } catch (e) {}
 
@@ -71,7 +80,7 @@ function boot() {
   const app = document.getElementById('app');
   shell = renderShell(app, { onNavigate: navigate, onSearch });
   const initial = (location.hash || '').replace('#', '');
-  navigate(isSection(initial) ? initial : 'dashboard');
+  navigate(isSection(initial) ? initial : 'purchase-orders');
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
