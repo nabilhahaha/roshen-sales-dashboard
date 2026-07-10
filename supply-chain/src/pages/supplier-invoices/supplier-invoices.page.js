@@ -211,7 +211,7 @@ async function renderInvoiceDetail(root, ctx, invoiceId) {
         return renderDocumentChain(body, (s2, p2) => { closeDrawer(); ctx.navigate(s2, p2); }, { orderId: inv.order_id, current: { type: 'supplier_invoice', id: inv.id } });
       }
       if (act === 'refresh') return renderInvoiceDetail(root, ctx, invoiceId);
-      const fn = HANDLERS[act]; if (fn) fn({});
+      const fn = HANDLERS[act]; if (fn) return fn({});   // return the promise → busy feedback
     },
   });
 

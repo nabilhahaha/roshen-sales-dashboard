@@ -1,5 +1,6 @@
 // Table + status-badge + card presentational helpers.
 import { esc } from '../../utils/format.js';
+import { skeletonPage } from '../feedback/feedback.js';
 import { ORDER_STATUS_VARIANT, ORDER_STATUS_DISPLAY } from '../../models/order-status.js';
 import { PI_STATUS_VARIANT } from '../../models/pi-status.js';
 import { orderBusinessStatus, BIZ_VARIANT } from '../../models/business-status.js';
@@ -17,7 +18,9 @@ export const orderBadge = (s) => {
 export const piBadge = (s) => (s ? `<span class="sc-badge ${PI_STATUS_VARIANT[s] || 'none'}">${esc(s)}</span>` : '<span class="sc-badge none">No PI</span>');
 
 export const emptyState = (icon, text) => `<div class="sc-empty"><div class="ic">${icon}</div><p>${esc(text)}</p></div>`;
-export const loading = (text = 'Loading…') => emptyState('⏳', text);
+// Skeleton page instead of an empty "⏳" box — same helper, every page keeps
+// its message ("Loading supplier invoices…") over the shimmer placeholders.
+export const loading = (text = 'Loading…') => skeletonPage(text);
 export const card = (inner, cls = '') => `<div class="sc-card ${cls}">${inner}</div>`;
 export const tableWrap = (inner) => `<div class="sc-table-wrap">${inner}</div>`;
 

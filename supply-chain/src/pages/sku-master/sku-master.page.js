@@ -7,6 +7,7 @@ import { esc, money } from '../../utils/format.js';
 import { loading, emptyState, tableWrap } from '../../components/table/table.js';
 import { modal } from '../../components/modal/modal.js';
 import { toast } from '../../components/notifications/toast.js';
+import { withPageLoading } from '../../components/feedback/feedback.js';
 import {
   listSkus, createSku, updateSku, setSkuStatus, listSkuAudit,
   getSkuDetail, addSkuBarcode, removeSkuBarcode, addSkuSupplier, removeSkuSupplier,
@@ -208,8 +209,10 @@ async function openDetail(sku) {
     if (fileInput) fileInput.addEventListener('change', async () => {
       const f = fileInput.files && fileInput.files[0]; if (!f) return;
       try {
-        const base64 = await readAsBase64(f);
-        await addSkuAttachment(sku.id, { kind: f.type === 'application/pdf' ? 'spec_pdf' : 'image', filename: f.name, mime: f.type, size: f.size, base64 }, ACTOR);
+        await withPageLoading('Uploading…', async () => {
+          const base64 = await readAsBase64(f);
+          await addSkuAttachment(sku.id, { kind: f.type === 'application/pdf' ? 'spec_pdf' : 'image', filename: f.name, mime: f.type, size: f.size, base64 }, ACTOR);
+        });
         toast('Attachment uploaded', 'ok'); paint();
       } catch (e) { toast(e.message || String(e), 'err'); }
     });
