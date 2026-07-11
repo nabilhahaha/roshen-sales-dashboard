@@ -21,16 +21,19 @@ import { getClient } from '../../services/supabase/client.js';
 import { openOrdersOverview } from '../../services/fulfillment/fulfillment.service.js';
 import { exportOrderBusinessFile } from '../../services/export/business-export.service.js';
 import { renderBusinessFile } from '../../components/document/business-file.js';
+import { renderSummaryTab } from './summary.tab.js';
 import { BIZ_VARIANT } from '../../models/business-status.js';
 
 const slugOf = (orderNumber) => String(orderNumber || '').replace(/[^\w-]+/g, '-');
 const bizBadge = (s) => `<span class="sc-badge ${BIZ_VARIANT[s] || 'none'}">${esc(s)}</span>`;
 
-// future tabs register here — same shape as the PO page tabs; adding one is a
-// single entry (id, icon, label, render), no layout changes needed:
-//   Received Batches · Freshness · Exceptions · Audit Log · Reports · Batch Analysis
+// future tabs register here — one entry (id, icon, label, render) per tab,
+// no layout changes needed: Received Batches · Freshness · Exceptions ·
+// Audit Log · Reports · Batch Analysis. Each tab renders LAZILY on first
+// activation and keeps its DOM when switching back.
 const TABS = [
   { id: 'chain', icon: '📂', label: 'Document Chain' },
+  { id: 'summary', icon: '📊', label: 'Summary' },
 ];
 
 export async function render(root, ctx) {
@@ -126,23 +129,54 @@ async function workspace(root, ctx, orderId) {
 
   const el = (k) => root.querySelector(`[data-el="${k}"]`);
   el('back').addEventListener('click', () => ctx.navigate('business-files'));
+  const nav = (s, p) => ctx.navigate(s, p);
+  const body = el('body');
 
-  let handle = null;
-  const load = async () => {
-    handle = await renderBusinessFile(el('body'), orderId, (s, p) => ctx.navigate(s, p));
-    if (handle && handle.order) {
-      el('bftitle').textContent = `📁 Business File — ${handle.order.order_number}`;
-      // refine the address to the permanent deep link of this file
-      try { history.replaceState(null, '', '#business-files/' + slugOf(handle.order.order_number)); } catch (e) { /* noop */ }
-    }
-    // the header search drives the file's own search box (one implementation)
-    const inner = el('body').querySelector('[data-el="bfsearch"]');
-    const hs = el('hsearch');
-    if (inner && hs) hs.oninput = () => { inner.value = hs.value; inner.dispatchEvent(new Event('input')); };
+  // one host per tab — rendered LAZILY on first activation, DOM kept when
+  // switching back (so the chain's expand state and the summary's filters
+  // both survive tab switches)
+  let active = 'chain';
+  let handle = null; // Document Chain handle (order info + print document)
+  const hosts = {}, rendered = new Set();
+  const hostOf = (id) => {
+    if (!hosts[id]) { const d = document.createElement('div'); d.dataset.tabhost = id; body.appendChild(d); hosts[id] = d; }
+    return hosts[id];
   };
-  await load();
+  const renderTab = async (id) => {
+    const host = hostOf(id);
+    if (id === 'chain') {
+      handle = await renderBusinessFile(host, orderId, nav);
+      if (handle && handle.order) {
+        el('bftitle').textContent = `📁 Business File — ${handle.order.order_number}`;
+        // refine the address to the permanent deep link of this file
+        try { history.replaceState(null, '', '#business-files/' + slugOf(handle.order.order_number)); } catch (e) { /* noop */ }
+      }
+    } else if (id === 'summary') await renderSummaryTab(host, { orderId, navigate: nav });
+  };
+  async function activate(id) {
+    active = id;
+    root.querySelectorAll('.bfp-tabs .doc-tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === id));
+    TABS.forEach((t) => { if (hosts[t.id]) hosts[t.id].style.display = t.id === id ? '' : 'none'; });
+    hostOf(id).style.display = '';
+    if (!rendered.has(id)) { rendered.add(id); await renderTab(id); }
+  }
+  root.querySelectorAll('.bfp-tabs .doc-tab').forEach((b) => b.addEventListener('click', () => activate(b.dataset.tab)));
+  await activate('chain');
 
-  el('refresh').addEventListener('click', async () => { await load(); toast('Business File refreshed', 'ok'); });
+  // header search drives the ACTIVE tab's own search box — one implementation
+  const hs = el('hsearch');
+  hs.oninput = () => {
+    const target = active === 'chain'
+      ? hostOf('chain').querySelector('[data-el="bfsearch"]')
+      : hostOf('summary').querySelector('[data-f="dn"]');
+    if (target) { target.value = hs.value; target.dispatchEvent(new Event('input')); }
+  };
+
+  el('refresh').addEventListener('click', async () => {
+    rendered.add(active);
+    await renderTab(active);
+    toast(active === 'chain' ? 'Business File refreshed' : 'Summary refreshed', 'ok');
+  });
   el('xls').addEventListener('click', async () => {
     try { await exportOrderBusinessFile(orderId); toast('Business File exported', 'ok'); }
     catch (e) { toast(e.message || String(e), 'err'); }
