@@ -23,6 +23,8 @@ import * as inventory from './pages/inventory/inventory.page.js';
 import * as batchTracking from './pages/batch-tracking/batch-tracking.page.js';
 import * as shipment from './pages/shipment/shipment.page.js';
 import * as placeholder from './pages/placeholder.page.js';
+import * as settings from './pages/settings/settings.page.js';
+import { startI18n } from './i18n/i18n.js';
 
 const PAGES = {
   dashboard,
@@ -42,6 +44,7 @@ const PAGES = {
   inventory,
   'batch-tracking': batchTracking,
   shipment,
+  settings,
 };
 
 // routes reachable by the router but not shown as sidebar items
@@ -86,6 +89,7 @@ function onSearch(q) {
 function boot() {
   const app = document.getElementById('app');
   shell = renderShell(app, { onNavigate: navigate, onSearch });
+  startI18n(); // translate the shell + keep every later render translated
   attachGlobalSearch(app.querySelector('.erp-topbar [data-el="search"]'), navigate);
   // Ctrl+F / Cmd+F focuses the global search (Esc returns to the browser default)
   document.addEventListener('keydown', (e) => {

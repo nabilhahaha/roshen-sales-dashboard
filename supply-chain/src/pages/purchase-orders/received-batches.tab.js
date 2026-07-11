@@ -18,6 +18,7 @@ import { statusBadge } from '../../components/table/badges.js';
 import { openDrawer } from '../../components/document/document-shell.js';
 import { attachmentsPanel } from '../../components/attachments/attachments-panel.js';
 import { toast } from '../../components/notifications/toast.js';
+import { t } from '../../i18n/i18n.js';
 
 const BANDS = [
   { min: 90, key: 'green', label: 'Green (90–100%)', color: '#2FB344' },
@@ -256,7 +257,7 @@ export async function renderReceivedBatchesTab(el, { orderId, orderNumber, suppl
   el.querySelector('[data-rb="xls"]').addEventListener('click', async () => {
     if (!window.XLSX) return toast('Excel engine not loaded', 'err');
     const data = filtered();
-    const header = COLS.map((cdef) => cdef.label).concat('Freshness Band');
+    const header = COLS.map((cdef) => t(cdef.label)).concat(t('Freshness Band'));
     const aoa = [header, ...data.map((r) => [
       r.item_code, r.roshen_id, r.description, r.batch_no, r.received,
       r.manufacturing_date, r.expiry_date, r.total_days ? humanDuration(r.total_days) : '',
@@ -311,7 +312,7 @@ export async function renderReceivedBatchesTab(el, { orderId, orderNumber, suppl
         <div><span>Below 70%</span><b>${wp.filter((r) => r.pct < 70).length}</b></div>
         <div><span>Expired</span><b>${data.filter((r) => r.status === 'Expired').length}</b></div>
       </div>
-      <table><thead><tr>${COLS.map((cdef) => `<th>${cdef.label}</th>`).join('')}</tr></thead><tbody>
+      <table><thead><tr>${COLS.map((cdef) => `<th>${esc(t(cdef.label))}</th>`).join('')}</tr></thead><tbody>
       ${data.map((r) => `<tr>
         <td>${esc(r.item_code)}</td><td>${esc(r.roshen_id)}</td><td>${esc(r.description.slice(0, 38))}</td><td>${esc(r.batch_no)}</td>
         <td class="r">${qty(r.received)}</td><td>${esc(r.manufacturing_date || '—')}</td><td>${esc(r.expiry_date || '—')}</td>

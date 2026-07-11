@@ -26,6 +26,7 @@ import { attachmentsPanel, previewAttachment } from '../attachments/attachments-
 import { listChainAttachments, attachmentUrl, canPreview } from '../../services/attachments/attachments.service.js';
 import { statusBadge } from '../table/badges.js';
 import { toast } from '../notifications/toast.js';
+import { t } from '../../i18n/i18n.js';
 import { getClient } from '../../services/supabase/client.js';
 import { listDeliveryNotes } from '../../services/delivery-note/delivery-note.service.js';
 import { buildBusinessTimeline } from '../../services/timeline/business-timeline.service.js';
@@ -262,7 +263,7 @@ export async function renderBusinessFile(body, orderId, navigate) {
         <div class="bf-head" data-toggle="pi">
           <span class="bf-caret">▸</span><span class="bf-ic">📋</span>
           <b class="mono">${esc(order.order_number)}</b> ${statusBadge(order.status)} ${piBadge} ${attChip('PI', nAtt('purchase_order', order.id))}
-          <span class="bf-meta">Purchase Invoice · ${d10(order.order_date)} · ${esc(order.supplier || '')}</span>
+          <span class="bf-meta">${t('Purchase Invoice')} · ${d10(order.order_date)} · ${esc(order.supplier || '')}</span>
           ${quick('purchase_order', order.id, order.order_number, 'pi')}
           <button class="sc-btn sm ghost bf-open" data-nav="purchase-orders" data-p='${esc(JSON.stringify({ orderId: order.id, mode: 'view' }))}'>↗ Open</button>
           <span class="bf-stats">
@@ -397,7 +398,7 @@ export async function renderBusinessFile(body, orderId, navigate) {
         si: si ? si.invoice_number : '—', sis: si ? si.status : 'Pending',
         amount, atts: nAtt('delivery_note', d.id) + (gr ? nAtt('goods_receipt', gr.id) : 0) + (si ? nAtt('supplier_invoice', si.id) : 0) };
     });
-    const t = rows.reduce((a, r) => ({ s: a.s + r.shipped, r: a.r + r.received, a: a.a + r.amount }), { s: 0, r: 0, a: 0 });
+    const tot = rows.reduce((a, r) => ({ s: a.s + r.shipped, r: a.r + r.received, a: a.a + r.amount }), { s: 0, r: 0, a: 0 });
     w.document.write(`<!doctype html><html><head><title>${esc(order.order_number)} — Business File</title><style>
       @page{size:A4 ${pdf ? 'landscape' : 'portrait'};margin:12mm}
       body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:${pdf ? '10px' : '10.5px'}}
@@ -424,15 +425,15 @@ export async function renderBusinessFile(body, orderId, navigate) {
         <div><span>PI Value</span><b>${money(piTotal)} ${esc(currency)}</b></div>
         <div><span>Attachments</span><b>${(atts || []).length}</b></div>
       </div>
-      <table><thead><tr><th>Delivery Note</th><th>Date</th><th>Status</th><th class="r">Shipped</th><th class="r">Received</th><th class="r">Variance</th>
-        <th>Goods Receipt</th><th>GR Status</th><th>Supplier Invoice</th><th>SI Status</th><th class="r">Amount</th><th class="r">📎</th></tr></thead>
+      <table><thead><tr><th>${t('Delivery Note')}</th><th>${t('Date')}</th><th>${t('Status')}</th><th class="r">${t('Shipped')}</th><th class="r">${t('Received')}</th><th class="r">${t('Variance')}</th>
+        <th>${t('Goods Receipt')}</th><th>${t('Status')}</th><th>${t('Supplier Invoice')}</th><th>${t('Status')}</th><th class="r">${t('Amount')}</th><th class="r">📎</th></tr></thead>
       <tbody>${rows.map((r) => `<tr><td>${esc(r.dn)}</td><td>${esc(r.date)}</td><td>${esc(r.status)}</td>
         <td class="r">${qty(r.shipped)}</td><td class="r">${qty(r.received)}</td><td class="r">${r.variance ? qty(r.variance) : '0'}</td>
         <td>${esc(r.gr)}</td><td>${esc(r.grs)}</td><td>${esc(r.si)}</td><td>${esc(r.sis)}</td>
         <td class="r">${money(r.amount)}</td><td class="r">${r.atts}</td></tr>`).join('')}</tbody>
-      <tfoot><tr><td colspan="3">TOTAL — ${rows.length} delivery note(s)</td><td class="r">${qty(t.s)}</td><td class="r">${qty(t.r)}</td>
-        <td class="r">${qty(+(t.s - t.r).toFixed(2))}</td><td colspan="4"></td><td class="r">${money(t.a)}</td><td></td></tr></tfoot></table>
-      <h2>🧭 Business Timeline</h2>
+      <tfoot><tr><td colspan="3">TOTAL — ${rows.length} delivery note(s)</td><td class="r">${qty(tot.s)}</td><td class="r">${qty(tot.r)}</td>
+        <td class="r">${qty(+(tot.s - tot.r).toFixed(2))}</td><td colspan="4"></td><td class="r">${money(tot.a)}</td><td></td></tr></tfoot></table>
+      <h2>${t('🧭 Business Timeline')}</h2>
       <table class="tl"><tbody>${(timeline || []).map((e) => `<tr><td>${esc(String(e.at || '').slice(0, 16).replace('T', ' '))}</td>
         <td>${esc(e.label)}</td><td>${esc(e.user || '—')}</td></tr>`).join('') || '<tr><td>No events yet.</td></tr>'}</tbody></table>
       <footer>Roshen / Relia Supply Chain · ${esc(order.order_number)} · page numbers added by the print dialog</footer>

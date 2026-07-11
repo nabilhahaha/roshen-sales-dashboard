@@ -1,17 +1,35 @@
 // Formatting + small pure helpers shared across the Supply Chain app.
+// Number and date presentation honour the user's Settings (Settings page):
+// digits stay WESTERN in every language (per the Arabic spec: numbers remain
+// English) — the setting only chooses the separator convention.
+import { getSettings } from '../services/settings/settings.service.js';
 
 export const esc = (s) =>
   String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// '1,234.56' → en-US grouping · '1.234,56' → de-DE grouping (western digits)
+const numLocale = () => (getSettings().numberFormat === '1.234,56' ? 'de-DE' : 'en-US');
+
 export const money = (v) =>
-  v == null || isNaN(v) ? '—' : Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  v == null || isNaN(v) ? '—' : Number(v).toLocaleString(numLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export const qty = (v) =>
-  v == null || isNaN(v) ? '—' : Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 });
+  v == null || isNaN(v) ? '—' : Number(v).toLocaleString(numLocale(), { maximumFractionDigits: 2 });
 
 export const num = (v) =>
-  v == null || isNaN(v) ? '0' : Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
+  v == null || isNaN(v) ? '0' : Number(v).toLocaleString(numLocale(), { maximumFractionDigits: 0 });
+
+// present an ISO day (YYYY-MM-DD…) in the user's chosen date format
+export const fmtDay = (iso) => {
+  const s = String(iso || '').slice(0, 10);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return s;
+  const f = getSettings().dateFormat;
+  if (f === 'DD/MM/YYYY') return `${m[3]}/${m[2]}/${m[1]}`;
+  if (f === 'MM/DD/YYYY') return `${m[2]}/${m[3]}/${m[1]}`;
+  return s;
+};
 
 export const today = () => {
   const d = new Date();

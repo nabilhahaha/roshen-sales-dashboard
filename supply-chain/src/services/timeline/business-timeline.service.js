@@ -17,6 +17,9 @@ export async function buildBusinessTimeline(orderId) {
     c.from('supplier_invoices').select('id,invoice_number,status,created_at,created_by,delivery_note_id').eq('order_id', orderId),
     c.from('po_audit_log').select('*').eq('order_id', orderId),
   ]);
+  const { data: amds } = await c.from('po_amendments')
+    .select('amendment_no,status,reason,created_by,created_at,applied_by,applied_at')
+    .eq('order_id', orderId);
   if (!order) return [];
   const dnById = {}; (dns || []).forEach((d) => { dnById[d.id] = d; });
   const [{ data: dnAudit }, { data: siAudit }] = await Promise.all([
@@ -29,6 +32,13 @@ export async function buildBusinessTimeline(orderId) {
   const events = [];
   events.push(ev(order.created_at, '➕', 'Purchase Order created', order.created_by, order.order_number));
   if (order.approved_at) events.push(ev(order.approved_at, '✅', 'Purchase Order approved', null, order.order_number));
+
+  // amendments take their real place in the story, ordered by time
+  (amds || []).forEach((a) => {
+    const no = 'AMD-' + String(a.amendment_no).padStart(2, '0');
+    events.push(ev(a.created_at, '📝', `Amendment ${no} created — ${a.reason}`, a.created_by, no));
+    if (a.applied_at) events.push(ev(a.applied_at, '⚡', `Amendment ${no} applied — order updated`, a.applied_by, no));
+  });
 
   (dns || []).forEach((d) => {
     events.push(ev(d.created_at, '🚚', `Delivery Note ${d.dn_number} created`, d.created_by, d.dn_number));

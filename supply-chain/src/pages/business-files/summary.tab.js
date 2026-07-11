@@ -27,6 +27,7 @@ import { listChainAttachments, attachmentUrl, canPreview } from '../../services/
 import { attachmentsPanel, previewAttachment } from '../../components/attachments/attachments-panel.js';
 import { shelfLife } from '../../models/shelf-life.js';
 import { toast } from '../../components/notifications/toast.js';
+import { t } from '../../i18n/i18n.js';
 
 // display vocabulary over the SAME data the Document Chain shows — no new
 // business rules, just one badge per delivery-note row
@@ -295,7 +296,7 @@ export async function renderSummaryTab(el, { orderId }) {
       if (!window.XLSX) return toast('Excel engine not loaded', 'err');
       const rows = filtered();
       const names = (files) => (files.length ? files.map((f) => f.filename).join(' · ') : 'No Attachment');
-      const aoa = [COLS, ...rows.map((r) => [r.dn, r.dnDate, r.inv, r.invDate, r.grn, r.grDate,
+      const aoa = [COLS.map((h) => t(h)), ...rows.map((r) => [r.dn, r.dnDate, r.inv, r.invDate, r.grn, r.grDate,
         r.shipped, r.received, r.variance, r.fresh == null ? '' : r.fresh + '%',
         names(r.piFiles), names(r.dnFiles), r.si_id ? names(r.invFiles) : '—', r.status])];
       aoa.push([], ['TOTAL', '', '', '', '', '', rows.reduce((a, r) => a + r.shipped, 0), rows.reduce((a, r) => a + r.received, 0), rows.reduce((a, r) => a + r.variance, 0), '', '', '', '', ''],
@@ -327,7 +328,7 @@ export async function renderSummaryTab(el, { orderId }) {
         <div class="logo">🏭 Roshen / Relia — Supply Chain</div>
         <h1>Business File Summary — ${esc(order.order_number)}</h1>
         <div class="sub">Supplier: ${esc(order.supplier || '—')} · Generated ${new Date().toISOString().slice(0, 16).replace('T', ' ')} · ${rows.length} delivery note(s)</div>
-        <table><thead><tr>${COLS.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>
+        <table><thead><tr>${COLS.map((h) => `<th>${esc(t(h))}</th>`).join('')}</tr></thead><tbody>
         ${rows.map((r) => `<tr><td>${esc(r.dn)}</td><td>${esc(r.dnDate)}</td><td>${esc(r.inv || '—')}</td><td>${esc(r.invDate || '—')}</td>
           <td>${esc(r.grn || '—')}</td><td>${esc(r.grDate || '—')}</td>
           <td class="r">${qty(r.shipped)}</td><td class="r">${qty(r.received)}</td><td class="r">${qty(r.variance)}</td>

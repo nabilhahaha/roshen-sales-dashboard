@@ -1,4 +1,4 @@
-// Theme system — Dark (default) / Light. Themes are pure CSS design tokens
+// Theme system — Light (default) / Dark. Themes are pure CSS design tokens
 // (:root and :root[data-theme="light"] in app.css); switching only flips the
 // data-theme attribute on <html>, so every component that reads var(--…)
 // re-themes instantly with no reload. The choice persists in localStorage and
@@ -7,11 +7,11 @@ const KEY = 'rr-theme';
 
 export function getTheme() {
   const t = document.documentElement.getAttribute('data-theme');
-  return t === 'light' ? 'light' : 'dark';
+  return t === 'dark' ? 'dark' : 'light'; // Light is the default
 }
 
 export function setTheme(theme) {
-  const t = theme === 'light' ? 'light' : 'dark';
+  const t = theme === 'dark' ? 'dark' : 'light';
   document.documentElement.setAttribute('data-theme', t);
   try { localStorage.setItem(KEY, t); } catch (e) { /* private mode */ }
   return t;
