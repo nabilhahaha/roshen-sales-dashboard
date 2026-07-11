@@ -29,7 +29,12 @@ export function sidebarHtml() {
 
 export function wireSidebar(root, onNavigate) {
   root.querySelectorAll('.erp-nav-item').forEach((a) =>
-    a.addEventListener('click', (e) => { e.preventDefault(); onNavigate(a.dataset.section); }));
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      const erp = root.querySelector('.erp');
+      if (erp) erp.classList.remove('nav-open'); // close the mobile drawer
+      onNavigate(a.dataset.section);
+    }));
   return {
     setActive(section) {
       root.querySelectorAll('.erp-nav-item').forEach((a) =>

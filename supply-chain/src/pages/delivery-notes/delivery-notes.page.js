@@ -48,7 +48,7 @@ async function renderList(root, ctx) {
       <button class="sc-btn primary" data-act="import">➕ Add Delivery Note</button></div>
     <div class="sc-card">
       <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">A PI can have several deliveries. Each delivery needs a matched supplier invoice before it can be received into the warehouse.</p>
-      ${tableWrap(`<table class="sc-table"><thead><tr>
+      ${tableWrap(`<table class="sc-table sc-cardify"><thead><tr>
         <th>Delivery Note</th><th>Date</th><th>PI</th><th>Supplier</th><th class="num">Cartons</th>
         <th>Status</th><th>Invoice</th><th>Warehouse Receipt</th></tr></thead>
         <tbody>${rows}</tbody></table>`)}

@@ -69,7 +69,7 @@ async function renderList(root, ctx) {
       <button class="sc-btn primary" style="margin-left:8px" data-act="upload">📄 Upload Supplier Invoice</button></div>
     <div class="sc-card">
       <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">Each supplier invoice is checked line-by-line against its delivery note and the PI. Upload the supplier's PDF here — the PI and Delivery Note are linked automatically from the document's references.</p>
-      ${tableWrap(`<table class="sc-table"><thead><tr>
+      ${tableWrap(`<table class="sc-table sc-cardify"><thead><tr>
         <th>Number</th><th>Type</th><th>Date</th><th>PI</th><th>Delivery Note</th><th>Supplier</th>
         <th class="num">Net</th><th class="num">Grand</th><th>Status</th></tr></thead>
         <tbody>${rows}</tbody></table>`)}

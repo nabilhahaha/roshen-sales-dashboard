@@ -102,3 +102,12 @@ function boot() {
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
 else boot();
+
+// PWA: offline shell + automatic updates (network-first in sw.js, and a new
+// worker takes over immediately). Push handlers are prepared in sw.js but
+// stay inert — see services/notifications/push.service.js.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => { /* http / unsupported */ });
+  });
+}

@@ -20,6 +20,7 @@
 // chain-wide attachment sweep. Preview / download / upload / drag & drop /
 // version history reuse the standard attachment components unchanged.
 import { esc, qty, money, today } from '../../utils/format.js';
+import { stampCardLabels } from '../../utils/dom.js';
 import { getClient } from '../../services/supabase/client.js';
 import { listDeliveryNotes } from '../../services/delivery-note/delivery-note.service.js';
 import { listChainAttachments, attachmentUrl, canPreview } from '../../services/attachments/attachments.service.js';
@@ -231,7 +232,7 @@ export async function renderSummaryTab(el, { orderId }) {
 
     function paint() {
       const rows = filtered();
-      grid.innerHTML = `<div class="sc-table-wrap"><table class="sc-table sum-table"><thead><tr>
+      grid.innerHTML = `<div class="sc-table-wrap"><table class="sc-table sum-table sc-cardify"><thead><tr>
         ${COLS.map((h, i) => `<th class="${i >= 6 && i <= 9 ? 'num' : ''}">${h}</th>`).join('')}</tr></thead><tbody>
         ${rows.map((r) => `<tr data-row="${r.dn_id}">
           <td class="mono"><b>${esc(r.dn)}</b></td><td>${esc(r.dnDate || '—')}</td>
@@ -249,6 +250,7 @@ export async function renderSummaryTab(el, { orderId }) {
       </tbody></table></div>
       <p style="font-size:11.5px;color:var(--text-muted);margin:8px 0 0">${rows.length} of ${allRows.length} delivery note(s) · Shipped ${qty(rows.reduce((a, r) => a + r.shipped, 0))} · Received ${qty(rows.reduce((a, r) => a + r.received, 0))}</p>`;
 
+      stampCardLabels(grid);
       grid.querySelectorAll('[data-attog]').forEach((b) => b.addEventListener('click', () => b.closest('.sum-att').classList.toggle('open')));
       grid.querySelectorAll('[data-prev]').forEach((b) => b.addEventListener('click', () => {
         const [dnId, kind, i] = b.dataset.prev.split(':');

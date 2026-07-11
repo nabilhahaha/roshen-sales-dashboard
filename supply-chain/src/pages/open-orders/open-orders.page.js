@@ -166,7 +166,7 @@ export async function render(root, ctx) {
         <button class="sc-btn ghost sm" style="margin-left:10px" data-act="xlsall">⬇ Excel</button></div>
       <div class="sc-card">
         <p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">Live business status per order: <b>Approved</b> → <b>Shipped</b> (delivery note confirmed) → <b>Delivered</b> (invoice matched &amp; goods posted). Fully delivered orders move to Purchase History automatically; use ✖ Close when the supplier cannot complete an order.</p>
-        ${tableWrap(`<table class="sc-table"><thead><tr>
+        ${tableWrap(`<table class="sc-table sc-cardify"><thead><tr>
           <th>PO Number</th><th>Supplier</th><th>Order Date</th>
           <th class="num">Ordered</th><th class="num">Shipped</th><th class="num">Delivered</th><th class="num">Remaining</th>
           <th>Status</th><th>Progress</th><th>Last Activity / ETA</th><th></th></tr></thead>

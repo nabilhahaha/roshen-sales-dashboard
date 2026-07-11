@@ -194,6 +194,13 @@ export function attachmentsPanel(el, docType, docId, { actor = 'Development' } =
         <div style="font-weight:700;color:var(--text-primary);font-size:12.5px">Drop files here or click to browse</div>
         <div style="font-size:11px;color:var(--text-muted);margin-top:3px">PDF · Excel (xlsx/xls/csv) · Images (jpg/png/heic/webp) — multiple files allowed, stored permanently</div>
         <input type="file" data-a="file" multiple accept="${ACCEPT_ATTR}" style="display:none">
+        <input type="file" data-a="camera" accept="image/*" capture="environment" style="display:none">
+        <input type="file" data-a="gallery" multiple accept="image/*" style="display:none">
+      </div>
+      <div class="att-mobile-src">
+        <button class="sc-btn sm ghost" data-a="src-camera">📷 Take Photo</button>
+        <button class="sc-btn sm ghost" data-a="src-gallery">🖼 Choose from Gallery</button>
+        <button class="sc-btn sm ghost" data-a="src-files">📁 Choose Files</button>
       </div>
       ${atts.length ? `<div class="sc-table-wrap"><table class="sc-table"><thead><tr>
         <th>File</th><th>Type</th><th>Size</th><th>Uploaded</th><th>By</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
@@ -208,6 +215,14 @@ export function attachmentsPanel(el, docType, docId, { actor = 'Development' } =
     ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
     drop.addEventListener('drop', (e) => { if (e.dataTransfer.files && e.dataTransfer.files.length) handleFiles(e.dataTransfer.files); });
     file.addEventListener('change', () => { if (file.files && file.files.length) handleFiles(file.files); });
+    // mobile sources — the camera / photo gallery / file manager all feed the
+    // SAME upload path (capture/accept attributes select the native picker)
+    const camera = body.querySelector('[data-a="camera"]');
+    const gallery = body.querySelector('[data-a="gallery"]');
+    [camera, gallery].forEach((inp) => inp.addEventListener('change', () => { if (inp.files && inp.files.length) { replaceTarget = null; handleFiles(inp.files); inp.value = ''; } }));
+    body.querySelector('[data-a="src-camera"]').addEventListener('click', () => camera.click());
+    body.querySelector('[data-a="src-gallery"]').addEventListener('click', () => gallery.click());
+    body.querySelector('[data-a="src-files"]').addEventListener('click', () => { replaceTarget = null; file.click(); });
 
     const previewable = atts.filter((a) => canPreview(a));
     body.querySelectorAll('[data-a="preview"]').forEach((b) => b.addEventListener('click', () => {

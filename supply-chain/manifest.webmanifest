@@ -1,0 +1,17 @@
+{
+  "name": "Roshen / Relia Supply Chain",
+  "short_name": "Supply Chain",
+  "description": "Roshen / Relia Supply Chain — procurement, delivery, receiving, invoicing and business files.",
+  "id": "/",
+  "start_url": "/#purchase-orders",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#101a2b",
+  "background_color": "#101a2b",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
