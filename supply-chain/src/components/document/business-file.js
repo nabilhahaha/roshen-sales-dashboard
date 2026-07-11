@@ -22,7 +22,6 @@
 // exists, else delivered cases × approved PO price. Expanded state is
 // remembered per order.
 import { esc, money, qty, lineKey } from '../../utils/format.js';
-import { openDrawer, closeDrawer } from './document-shell.js';
 import { attachmentsPanel, previewAttachment } from '../attachments/attachments-panel.js';
 import { listChainAttachments, attachmentUrl, canPreview } from '../../services/attachments/attachments.service.js';
 import { statusBadge } from '../table/badges.js';
@@ -51,8 +50,19 @@ const emptyNode = (icon, title, note) =>
 const tracker = (steps) => `<div class="bf-track">${steps.map((s, i) =>
   `${i ? '<span class="bf-track-line"></span>' : ''}<span class="bf-step ${s.done ? 'done' : ''}" title="${esc(s.title || '')}">${s.done ? '✔' : '○'} ${esc(s.label)}</span>`).join('')}</div>`;
 
-export async function openBusinessFile(orderId, navigate) {
-  const body = openDrawer('📁 Business File — complete document chain', '<div class="sk-page-head"><span class="sc-spin" style="width:13px;height:13px"></span> <span>Loading the document chain…</span></div>');
+// Every "Business File" button in the app lands on the dedicated Business
+// Files page — the drawer is gone. Same signature as before, so every existing
+// caller (PO, Delivery Note, Goods Receipt, Supplier Invoice, …) is migrated
+// without being touched.
+export function openBusinessFile(orderId, navigate) {
+  if (navigate) navigate('business-files', { orderId });
+}
+
+// The Business File workspace itself — renders the complete document tree into
+// any host element (today: the Business Files page). Returns a small handle
+// the page uses for its header actions (order info + the print/PDF document).
+export async function renderBusinessFile(body, orderId, navigate) {
+  body.innerHTML = '<div class="sk-page-head"><span class="sc-spin" style="width:13px;height:13px"></span> <span>Loading the document chain…</span></div>';
   const c = getClient();
 
   // wave 1 — the order + its delivery notes (each already joined to ITS active
@@ -304,7 +314,6 @@ export async function openBusinessFile(orderId, navigate) {
   }));
   body.querySelectorAll('.bf-node.open').forEach((n) => mountAtts(n));
   body.querySelectorAll('.bf-open').forEach((b) => b.addEventListener('click', () => {
-    closeDrawer();
     if (navigate) navigate(b.dataset.nav, JSON.parse(b.dataset.p || '{}'));
   }));
   body.querySelectorAll('.bf-card').forEach((cEl) => cEl.addEventListener('click', () => {
@@ -369,4 +378,68 @@ export async function openBusinessFile(orderId, navigate) {
     noMatch.style.display = q && !hits ? '' : 'none';
     if (!q) body.querySelectorAll('.bf-dn').forEach((n) => n.classList.toggle('open', open.has(n.dataset.node)));
   });
+
+  // ---- print / PDF document (page header actions) — from the data already
+  // loaded above, no extra queries. One document serves both: PDF = landscape
+  // letterhead, Print = the plain chain, both with repeating table headers.
+  const printDoc = ({ pdf }) => {
+    const w = window.open('', '_blank', 'width=1200,height=800');
+    if (!w) return toast('Allow pop-ups to export', 'err');
+    const rows = notes.map((d) => {
+      const gr = d.goods_receipt ? grById[d.goods_receipt.id] : null;
+      const si = d.invoice ? siById[d.invoice.id] : null;
+      const shipped = Number(d.total_cartons || 0);
+      const received = gr ? (recvByGr[gr.id] || 0) : 0;
+      const amount = si ? Number(si.total_taxable || 0) : (amountByDn[d.id] || 0);
+      return { dn: d.dn_number, date: String(d.dn_date || '').slice(0, 10), status: d.status,
+        shipped, received, variance: +(shipped - received).toFixed(2),
+        gr: gr ? gr.grn_number : '—', grs: gr ? gr.status : 'Pending',
+        si: si ? si.invoice_number : '—', sis: si ? si.status : 'Pending',
+        amount, atts: nAtt('delivery_note', d.id) + (gr ? nAtt('goods_receipt', gr.id) : 0) + (si ? nAtt('supplier_invoice', si.id) : 0) };
+    });
+    const t = rows.reduce((a, r) => ({ s: a.s + r.shipped, r: a.r + r.received, a: a.a + r.amount }), { s: 0, r: 0, a: 0 });
+    w.document.write(`<!doctype html><html><head><title>${esc(order.order_number)} — Business File</title><style>
+      @page{size:A4 ${pdf ? 'landscape' : 'portrait'};margin:12mm}
+      body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:${pdf ? '10px' : '10.5px'}}
+      h1{font-size:16px;margin:0}.sub{color:#555;font-size:10px;margin:2px 0 10px}
+      .logo{font-size:13px;font-weight:800;letter-spacing:.04em;margin-bottom:2px}
+      .kpis{display:flex;gap:14px;margin:8px 0 12px;flex-wrap:wrap}
+      .kpis div{border:1px solid #ccc;border-radius:6px;padding:5px 10px}
+      .kpis span{display:block;font-size:8px;text-transform:uppercase;color:#777}
+      table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:3px 5px;text-align:left}
+      th{background:#efefef;font-size:9px;text-transform:uppercase} td.r{text-align:right}
+      thead{display:table-header-group}tfoot td{font-weight:700;background:#f7f7f7}
+      h2{font-size:12px;margin:14px 0 6px}.tl td{border:none;padding:2px 6px;font-size:9.5px}
+      footer{position:fixed;bottom:0;right:0;font-size:8px;color:#888}
+    </style></head><body>
+      <div class="logo">🏭 Roshen / Relia — Supply Chain</div>
+      <h1>Business File — ${esc(order.order_number)}</h1>
+      <div class="sub">Supplier: ${esc(order.supplier || '—')} · PI date ${d10(order.order_date)} · Generated ${new Date().toISOString().slice(0, 16).replace('T', ' ')}</div>
+      <div class="kpis">
+        <div><span>Ordered</span><b>${qty(orderedTotal)}</b></div>
+        <div><span>Shipped</span><b>${qty(shippedTotal)}</b></div>
+        <div><span>Delivery Notes</span><b>${notes.length}</b></div>
+        <div><span>Goods Receipts</span><b>${grCount}</b></div>
+        <div><span>Supplier Invoices</span><b>${siCount}</b></div>
+        <div><span>PI Value</span><b>${money(piTotal)} ${esc(currency)}</b></div>
+        <div><span>Attachments</span><b>${(atts || []).length}</b></div>
+      </div>
+      <table><thead><tr><th>Delivery Note</th><th>Date</th><th>Status</th><th class="r">Shipped</th><th class="r">Received</th><th class="r">Variance</th>
+        <th>Goods Receipt</th><th>GR Status</th><th>Supplier Invoice</th><th>SI Status</th><th class="r">Amount</th><th class="r">📎</th></tr></thead>
+      <tbody>${rows.map((r) => `<tr><td>${esc(r.dn)}</td><td>${esc(r.date)}</td><td>${esc(r.status)}</td>
+        <td class="r">${qty(r.shipped)}</td><td class="r">${qty(r.received)}</td><td class="r">${r.variance ? qty(r.variance) : '0'}</td>
+        <td>${esc(r.gr)}</td><td>${esc(r.grs)}</td><td>${esc(r.si)}</td><td>${esc(r.sis)}</td>
+        <td class="r">${money(r.amount)}</td><td class="r">${r.atts}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><td colspan="3">TOTAL — ${rows.length} delivery note(s)</td><td class="r">${qty(t.s)}</td><td class="r">${qty(t.r)}</td>
+        <td class="r">${qty(+(t.s - t.r).toFixed(2))}</td><td colspan="4"></td><td class="r">${money(t.a)}</td><td></td></tr></tfoot></table>
+      <h2>🧭 Business Timeline</h2>
+      <table class="tl"><tbody>${(timeline || []).map((e) => `<tr><td>${esc(String(e.at || '').slice(0, 16).replace('T', ' '))}</td>
+        <td>${esc(e.label)}</td><td>${esc(e.user || '—')}</td></tr>`).join('') || '<tr><td>No events yet.</td></tr>'}</tbody></table>
+      <footer>Roshen / Relia Supply Chain · ${esc(order.order_number)} · page numbers added by the print dialog</footer>
+    </body></html>`);
+    w.document.close();
+    setTimeout(() => { w.print(); }, 400);
+  };
+
+  return { order, dnCount: notes.length, grCount, siCount, attCount: (atts || []).length, print: printDoc };
 }

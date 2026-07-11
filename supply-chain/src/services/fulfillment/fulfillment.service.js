@@ -227,13 +227,17 @@ export async function listOpenOrders() {
 // invoices. "Shipped" counts the cases on CONFIRMED delivery notes
 // (dispatched or later, including the already-received ones); "delivered"
 // counts what actually posted to the warehouse.
-export async function openOrdersOverview() {
+// includeClosed widens ONLY the status filter (for the Business Files master
+// list, which is the permanent home of every order's file) — every quantity,
+// status and aggregation below is the same single implementation.
+export async function openOrdersOverview({ includeClosed = false } = {}) {
   const c = getClient();
-  const { data: orders, error } = await c.from('supply_orders')
+  let q = c.from('supply_orders')
     .select('id,order_number,order_date,supplier,warehouse,expected_arrival,status,close_reason,updated_at,created_at')
-    .not('status', 'in', '("' + CLOSED_STATUSES.join('","') + '")')
     .neq('status', 'Draft')
     .order('order_date', { ascending: false });
+  if (!includeClosed) q = q.not('status', 'in', '("' + CLOSED_STATUSES.join('","') + '")');
+  const { data: orders, error } = await q;
   if (error) throw error;
   if (!orders || !orders.length) return [];
   const ids = orders.map((o) => o.id);

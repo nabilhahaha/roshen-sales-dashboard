@@ -459,3 +459,19 @@ button.is-busy,.sc-btn.is-busy{display:inline-flex;align-items:center;gap:7px;ju
   .oo-item{min-width:150px}
   .oo-item .oo-desc{max-width:170px}
 }
+
+/* ---------- Business Files page (full-page module) ---------- */
+.bfp-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.bfp-head{flex-wrap:wrap;gap:8px}
+.bfp-head h3{margin-right:4px}
+.bfp-search{min-width:200px;max-width:260px}
+.bfp-tabs{margin:4px 0 12px}
+.bfp-body{min-height:200px}
+/* in the page the summary sticks just below the sticky topbar */
+.bfp-body .bf-sticky{top:58px}
+@media(max-width:900px){
+  .bfp-search{min-width:140px;flex:1 1 100%;order:9}
+}
+@media(max-width:760px){
+  .bfp-head .sc-btn{flex:1 1 30%}
+}
