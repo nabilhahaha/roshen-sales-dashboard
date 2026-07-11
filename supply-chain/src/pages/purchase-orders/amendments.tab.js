@@ -6,7 +6,6 @@
 // no business rules live in this file.
 import { esc, qty, money, fmtDay } from '../../utils/format.js';
 import { toast } from '../../components/notifications/toast.js';
-import { statusBadge } from '../../components/table/badges.js';
 import { t } from '../../i18n/i18n.js';
 import { canApproveAmendments, currentActor } from '../../models/permissions.js';
 import {

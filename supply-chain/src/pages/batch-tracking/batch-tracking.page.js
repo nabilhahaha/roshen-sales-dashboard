@@ -3,7 +3,7 @@
 // movement-derived stock, dynamic shelf life, QC + hold state, reservations,
 // a full audit trail, and a FEFO allocation tool that always draws from the
 // oldest valid batch. Pages talk only to services.
-import { mount, delegate, qsa } from '../../utils/dom.js';
+import { mount, delegate } from '../../utils/dom.js';
 import { esc, qty, today } from '../../utils/format.js';
 import { loading, emptyState, tableWrap } from '../../components/table/table.js';
 import { modal } from '../../components/modal/modal.js';

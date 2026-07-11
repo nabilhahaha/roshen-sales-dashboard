@@ -69,20 +69,32 @@ export function renderDocumentShell(root, cfg) {
       e.stopPropagation();
       moreMenu.style.display = moreMenu.style.display === 'none' ? 'block' : 'none';
     });
-    document.addEventListener('click', (e) => { if (!moreMenu.contains(e.target) && e.target !== moreBtn) moreMenu.style.display = 'none'; });
+    const onDocClick = (e) => {
+      // self-detach once this shell instance leaves the DOM
+      if (!moreMenu.isConnected) { document.removeEventListener('click', onDocClick); return; }
+      if (!moreMenu.contains(e.target) && e.target !== moreBtn) moreMenu.style.display = 'none';
+    };
+    document.addEventListener('click', onDocClick);
   }
 
   const bodyEl = root.querySelector('[data-el="tabbody"]');
+  // each show() renders into its own container: when the user switches tab
+  // while a slow render is still loading, the stale render finishes into a
+  // detached node instead of overwriting the newly selected tab's content
+  let showSeq = 0;
   async function show(id) {
+    showSeq += 1;
     active = id;
     if (memKey) TAB_MEMORY.set(memKey, id);
     root.querySelectorAll('.doc-tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === id));
     const t = tabs.find((x) => x.id === id);
-    bodyEl.innerHTML = `<div class="sk-page" role="status" aria-live="polite">
+    const view = document.createElement('div');
+    view.innerHTML = `<div class="sk-page" role="status" aria-live="polite">
       <div class="sk-page-head">${spinner()} <span>Loading…</span></div>
       <div class="sc-card">${skeletonTable(5, 6)}</div></div>`;
-    try { await t.render(bodyEl); }
-    catch (e) { bodyEl.innerHTML = `<div class="sc-empty"><div class="ic">⚠</div><p>${esc(e.message || String(e))}</p></div>`; }
+    bodyEl.replaceChildren(view);
+    try { await t.render(view); }
+    catch (e) { view.innerHTML = `<div class="sc-empty"><div class="ic">⚠</div><p>${esc(e.message || String(e))}</p></div>`; }
   }
   root.querySelectorAll('.doc-tab').forEach((b) => b.addEventListener('click', () => show(b.dataset.tab)));
   root.querySelectorAll('[data-qact]').forEach((b) => b.addEventListener('click', () => {

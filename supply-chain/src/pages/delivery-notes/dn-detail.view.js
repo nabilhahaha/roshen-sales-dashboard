@@ -2,9 +2,9 @@
 // per-line delivered / remaining / disputed vs the PO, batches with live shelf
 // life, the supplier-invoice match gate, goods-receipt creation, and the audit
 // trail. Pages talk only to services.
-import { mount, wire, qsa, delegate } from '../../utils/dom.js';
+import { mount, qsa, delegate } from '../../utils/dom.js';
 import { esc, qty, today, normRoshen } from '../../utils/format.js';
-import { loading, emptyState, tableWrap, orderBadge } from '../../components/table/table.js';
+import { loading, emptyState, tableWrap } from '../../components/table/table.js';
 import { modal } from '../../components/modal/modal.js';
 import { toast } from '../../components/notifications/toast.js';
 import { statusBadge, qcBadge, shelfChip } from '../../components/table/badges.js';
@@ -19,7 +19,6 @@ import { listSkus, indexByRoshen, indexByCode } from '../../services/sku/sku.ser
 import { matchInvoiceToDeliveryNote, getInvoiceDocument } from '../../services/supplier-invoice/supplier-invoice.service.js';
 import { createGoodsReceiptFromDeliveryNote, autoReleaseIfClean } from '../../services/goods-receiving/goods-receiving.service.js';
 import { printDeliveryNote } from '../../utils/documents.js';
-import { attachmentsPanel } from '../../components/attachments/attachments-panel.js';
 import { renderDocumentChain } from '../../components/related/document-chain.js';
 import { exportDeliveryNoteExcel } from '../../services/export/business-export.service.js';
 import { renderDocumentShell, openDrawer, closeDrawer } from '../../components/document/document-shell.js';

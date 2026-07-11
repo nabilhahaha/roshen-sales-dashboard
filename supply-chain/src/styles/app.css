@@ -62,25 +62,12 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:-apple-syst
 /* dashboard kpis */
 .erp-kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:16px}
 .erp-kpi{background:var(--bg-card);border:1px solid var(--border);border-radius:14px;padding:16px 18px}
-.erp-kpi.accent{background:linear-gradient(135deg,rgba(255,92,110,.12),rgba(255,122,137,.04));border-color:rgba(255,92,110,.3)}
 .erp-kpi.warn{background:linear-gradient(135deg,rgba(230,81,12,.12),rgba(247,103,7,.04));border-color:rgba(247,103,7,.3)}
 .erp-kpi .k-lbl{font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px}
 .erp-kpi .k-val{font-size:26px;font-weight:800;color:var(--text-primary);margin:4px 0 2px}
-.erp-kpi.accent .k-val{color:var(--gold)}
 .erp-kpi .k-sub{font-size:11.5px;color:var(--text-muted)}
 .erp-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
 @media(max-width:900px){.erp-grid-2{grid-template-columns:1fr}}
-.erp-pipe{display:flex;flex-direction:column;gap:10px}
-.erp-pipe-row{display:flex;align-items:center;gap:12px}
-.erp-pipe-lbl{width:96px;font-size:12px;color:var(--text-secondary);font-weight:600}
-.erp-pipe-bar{flex:1;height:10px;background:var(--bg-input);border-radius:6px;overflow:hidden}
-.erp-pipe-fill{height:100%;border-radius:6px;transition:width .4s}
-.erp-pipe-val{width:28px;text-align:right;font-weight:800;font-size:13px}
-.erp-pi-stats{display:flex;flex-direction:column;gap:10px}
-.erp-pi-stat{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
-.erp-pi-stat:last-child{border-bottom:none}.erp-pi-stat b{font-size:16px;font-weight:800}
-.erp-pi-net{margin-top:14px;font-size:12.5px;color:var(--text-secondary)}.erp-pi-net b{color:var(--text-primary)}
-
 /* workflow flow bar + steps */
 .erp-flow{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
 .erp-flow-node{background:var(--bg-card-hover);border:1px solid var(--border);border-radius:12px;padding:12px 18px;text-align:center;min-width:96px}
@@ -100,46 +87,9 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:-apple-syst
 .erp-soon p{max-width:520px;margin:10px auto 0;color:var(--text-secondary);font-size:13px;line-height:1.6}
 .erp-soon-note{color:var(--text-muted)!important;font-size:12px!important}
 
-@media(max-width:820px){.erp{grid-template-columns:1fr}.erp-sidebar{position:fixed;z-index:100;transform:translateX(-100%)}.erp-search{min-width:0}}
+@media(max-width:900px){.erp{grid-template-columns:1fr}.erp-sidebar{position:fixed;z-index:100;transform:translateX(-100%)}.erp-search{min-width:0}}
 
 /* ===== Supply Chain component styles (module-owned, reused here) ===== */
-
-.sc-wrap { max-width: 1280px; margin: 0 auto; padding: 4px 2px 40px; }
-.sc-topbar {
-  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
-  padding: 14px 18px; margin-bottom: 18px;
-  background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-card-hover) 100%);
-  border: 1px solid var(--border); border-radius: 14px;
-}
-.sc-title { display: flex; align-items: center; gap: 12px; }
-.sc-title-icon {
-  width: 44px; height: 44px; border-radius: 12px; font-size: 22px;
-  display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, var(--gold), var(--gold-bright));
-  box-shadow: 0 6px 18px rgba(255,92,110,0.35);
-}
-.sc-title-text h2 { font-size: 18px; font-weight: 800; color: var(--text-primary); letter-spacing: .3px; }
-.sc-title-text p { font-size: 11.5px; color: var(--text-secondary); margin-top: 2px; }
-.sc-nav { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
-.sc-nav-btn {
-  padding: 8px 14px; border-radius: 9px; font-size: 12.5px; font-weight: 600;
-  color: var(--text-secondary); background: var(--bg-input);
-  border: 1px solid var(--border); cursor: pointer; transition: all .15s;
-}
-.sc-nav-btn:hover { color: var(--text-primary); border-color: var(--border-light); }
-.sc-nav-btn.active {
-  color: #fff; background: linear-gradient(135deg, var(--gold), var(--gold-bright));
-  border-color: transparent; box-shadow: 0 4px 14px rgba(255,92,110,0.32);
-}
-.sc-conn { font-size: 11px; font-weight: 600; color: var(--text-muted); display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-.sc-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
-.sc-conn.ok .sc-dot { background: #2FB344; box-shadow: 0 0 8px rgba(47,179,68,.6); }
-.sc-conn.err .sc-dot { background: #E03131; box-shadow: 0 0 8px rgba(224,49,49,.6); }
-.sc-conn.ok { color: #2FB344; }
-.sc-conn.err { color: #E03131; }
-
-.sc-screen { display: none; }
-.sc-screen.active { display: block; animation: viewEnter .3s cubic-bezier(0.22,1,0.36,1) forwards; }
 
 .sc-card {
   background: var(--bg-card); border: 1px solid var(--border);
@@ -153,14 +103,13 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:-apple-syst
 .sc-field { display: flex; flex-direction: column; gap: 5px; }
 .sc-field label { font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .5px; }
 .sc-field label .req { color: var(--gold); }
-.sc-input, .sc-select, .sc-textarea {
+.sc-input, .sc-select {
   background: var(--bg-input); border: 1px solid var(--border); border-radius: 8px;
   padding: 9px 11px; font-size: 13px; color: var(--text-primary); font-family: inherit; width: 100%;
   transition: border-color .15s;
 }
-.sc-input:focus, .sc-select:focus, .sc-textarea:focus { outline: none; border-color: var(--gold); }
+.sc-input:focus, .sc-select:focus { outline: none; border-color: var(--gold); }
 .sc-input[readonly] { color: var(--text-secondary); background: var(--bg-card-hover); cursor: default; }
-.sc-textarea { resize: vertical; min-height: 60px; }
 
 .sc-btn {
   padding: 9px 16px; border-radius: 9px; font-size: 12.5px; font-weight: 700; cursor: pointer;
@@ -250,11 +199,6 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:-apple-syst
 .sc-modal p { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
 .sc-modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; flex-wrap: wrap; }
 
-@media (max-width: 640px) {
-  .sc-nav { margin-left: 0; width: 100%; }
-  .sc-conn { display: none; }
-}
-
 /* ----- Revision history / audit timeline ----- */
 .erp-rev-timeline{display:flex;flex-direction:column;gap:10px}
 .erp-rev{border:1px solid var(--border);border-radius:12px;padding:12px 14px;background:var(--bg-card-hover)}
@@ -296,11 +240,6 @@ body{background:var(--bg-deep);color:var(--text-primary);font-family:-apple-syst
 .doc-tab:hover{background:var(--bg-card-hover);color:var(--text-primary)}
 .doc-tab.active{color:var(--accent,#FF5C6E);border-bottom-color:var(--accent,#FF5C6E)}
 .doc-tab .cnt{font-size:10px;background:var(--bg-card-hover);border:1px solid var(--border);border-radius:8px;padding:1px 6px;color:var(--text-muted)}
-.doc-grid{display:grid;grid-template-columns:minmax(0,1fr) 208px;gap:14px;align-items:start}
-.doc-aside{position:sticky;top:76px;display:flex;flex-direction:column;gap:8px}
-.doc-aside .sc-btn{justify-content:flex-start;text-align:left;width:100%}
-.doc-aside-h{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);margin:6px 2px 2px}
-@media(max-width:1080px){.doc-grid{grid-template-columns:1fr}.doc-aside{position:static;flex-direction:row;flex-wrap:wrap}.doc-aside .sc-btn{width:auto}}
 /* in-page drawer (previews, business file) — never leave the screen */
 .doc-drawer-overlay{position:fixed;inset:0;background:rgba(5,10,20,.55);z-index:220;display:flex;justify-content:flex-end}
 .doc-drawer{width:min(860px,94vw);height:100%;background:var(--bg-card);border-left:1px solid var(--border);
@@ -503,7 +442,7 @@ button.is-busy,.sc-btn.is-busy{display:inline-flex;align-items:center;gap:7px;ju
 /* burger — phone/tablet only; slides the sidebar in over a scrim */
 .erp-burger{display:none}
 .erp-scrim{display:none}
-@media(max-width:820px){
+@media(max-width:900px){
   .erp-burger{display:inline-flex}
   .erp-sidebar{transition:transform .22s ease;width:min(280px,84vw)}
   .erp.nav-open .erp-sidebar{transform:translateX(0);box-shadow:0 0 40px rgba(0,0,0,.5)}
@@ -588,7 +527,7 @@ button.is-busy,.sc-btn.is-busy{display:inline-flex;align-items:center;gap:7px;ju
 [dir="rtl"] .sc-table th,[dir="rtl"] .sc-table td{text-align:right}
 [dir="rtl"] .sc-table th.num,[dir="rtl"] .sc-table td.num{text-align:left}
 [dir="rtl"] .erp-nav-item{text-align:right}
-@media(max-width:820px){[dir="rtl"] .erp-sidebar{transform:translateX(100%)}[dir="rtl"] .erp.nav-open .erp-sidebar{transform:translateX(0)}}
+@media(max-width:900px){[dir="rtl"] .erp-sidebar{transform:translateX(100%)}[dir="rtl"] .erp.nav-open .erp-sidebar{transform:translateX(0)}}
 /* ---------- Settings page ---------- */
 .set-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
 .set-grid .sc-field label{font-size:11.5px}

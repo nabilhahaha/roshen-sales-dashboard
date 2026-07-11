@@ -3,7 +3,7 @@
 // the Purchase Order's fulfillment ledger (open delivery balance). Matching is
 // only by Roshen ID → Item Code, never by description.
 import { parseNumber, lineKey as keyOf } from '../../utils/format.js';
-import { shelfLife, parseDate, toISO } from '../../models/shelf-life.js';
+import { shelfLife, toISO } from '../../models/shelf-life.js';
 
 // mapByIdx: { colIdx: fieldKey }  ->  field: colIdx
 function fieldIndex(mapByIdx) {

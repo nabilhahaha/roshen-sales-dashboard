@@ -1,6 +1,6 @@
 // Purchase Order Revision screen — resolve PI-vs-PO differences and apply a new
 // revision (never rejects the PI, never overwrites the original PO).
-import { mount, wire, qs, qsa } from '../../../utils/dom.js';
+import { mount, wire, qsa } from '../../../utils/dom.js';
 import { esc, money, qty as fmtQty } from '../../../utils/format.js';
 import { loading, emptyState, tableWrap } from '../../../components/table/table.js';
 import { toast } from '../../../components/notifications/toast.js';
