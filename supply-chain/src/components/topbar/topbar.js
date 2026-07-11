@@ -1,5 +1,6 @@
 // Top bar — company / breadcrumb, global search, theme switch, notifications.
 import { getTheme, toggleTheme } from '../../utils/theme.js';
+import { LOCALES, getLocale, setLocale } from '../../i18n/i18n.js';
 
 const themeIcon = (t) => (t === 'light' ? '🌙' : '☀️');
 const themeTitle = (t) => (t === 'light' ? 'Switch to dark mode' : 'Switch to light mode');
@@ -12,6 +13,9 @@ export function topbarHtml() {
       <div class="erp-crumb"><span class="erp-crumb-co">Roshen / Relia</span> <span class="sep">/</span> <b data-el="title">Purchase Orders</b></div>
       <div class="erp-search"><span>🔎</span><input data-el="search" placeholder="Search SKUs, orders…" autocomplete="off"></div>
       <div class="erp-topbar-right">
+        <span class="erp-lang" title="Language">🌐<select data-el="lang" aria-label="Language">
+          ${Object.entries(LOCALES).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('')}
+        </select></span>
         <button class="erp-iconbtn" data-el="theme" title="${themeTitle(t)}" aria-label="Toggle theme">${themeIcon(t)}</button>
         <button class="erp-iconbtn" data-el="notif" title="Pending validations">🔔<span class="erp-badge" data-el="notifCount" style="display:none"></span></button>
         <div class="erp-user-wrap" data-el="userWrap">
@@ -43,6 +47,8 @@ export function wireTopbar(root, { onSearch, onNotif, onSettings }) {
   if (search) search.addEventListener('input', (e) => onSearch(e.target.value));
   const notif = root.querySelector('[data-el="notif"]');
   if (notif) notif.addEventListener('click', () => onNotif && onNotif());
+  const lang = root.querySelector('[data-el="lang"]');
+  if (lang) { lang.value = getLocale(); lang.addEventListener('change', () => setLocale(lang.value)); }
   const theme = root.querySelector('[data-el="theme"]');
   if (theme) theme.addEventListener('click', () => { const t = toggleTheme(); theme.textContent = themeIcon(t); theme.title = themeTitle(t); });
   const userBtn = root.querySelector('[data-el="user"]');
