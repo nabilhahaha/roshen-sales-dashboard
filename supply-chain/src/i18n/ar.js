@@ -92,6 +92,8 @@ export const AR = {
   'Applied': 'مُطبَّق',
   'Rejected': 'مرفوض',
   'Cancelled': 'ملغى',
+  'Closed': 'مغلق',
+  'Financially Closed': 'مغلق مالياً',
   'Active': 'نشط',
   'Inactive': 'غير نشط',
   'active': 'نشط',

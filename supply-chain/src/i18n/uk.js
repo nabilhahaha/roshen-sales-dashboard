@@ -88,6 +88,8 @@ export const UK = {
   'Applied': 'Застосовано',
   'Rejected': 'Відхилено',
   'Cancelled': 'Скасовано',
+  'Closed': 'Закрито',
+  'Financially Closed': 'Фінансово закрито',
   'Active': 'Активний',
   'Inactive': 'Неактивний',
   'active': 'активний',
