@@ -75,11 +75,12 @@ export async function render(root, ctx) {
       <div class="sc-card-h"><h3>⏳ Open Orders</h3><div class="sc-spacer"></div>
         <button class="sc-btn sm ghost" data-act="openorders">Open Orders →</button></div>
       ${open.length ? tableWrap(`<table class="sc-table"><thead><tr>
-          <th>PI Number</th><th>Supplier</th><th>Expected Delivery</th><th class="num">Remaining Qty</th><th>Status</th></tr></thead><tbody>
+          <th>PI Number</th><th>Supplier</th><th>Expected Delivery</th><th class="num">Remaining Qty</th><th>Status</th><th></th></tr></thead><tbody>
           ${open.slice(0, 8).map((o) => `<tr class="sc-row-link" data-act="openpo" data-id="${o.id}">
             <td class="mono"><b>${esc(o.order_number)}</b></td><td>${esc(o.supplier || '')}</td>
             <td style="font-size:11.5px">${o.next_eta ? esc(String(o.next_eta).slice(0, 16).replace('T', ' ')) : '—'}</td>
-            <td class="num"><b>${qty(o.remaining_cases)}</b></td><td>${orderBadge(o)}</td></tr>`).join('')}
+            <td class="num"><b>${qty(o.remaining_cases)}</b></td><td>${orderBadge(o)}</td>
+            <td><button class="sc-btn sm ghost" data-act="bizfile" data-id="${o.id}" title="Open the Business File">📁 File</button></td></tr>`).join('')}
         </tbody></table>`)
         : '<p style="font-size:12.5px;color:var(--text-secondary);margin:0">No open orders — everything is fully received and closed.</p>'}
     </div>`);
@@ -91,6 +92,7 @@ export async function render(root, ctx) {
     invoices: () => ctx.navigate('supplier-invoices'),
     alerts: () => { const el = root.querySelector('#alerts'); if (el) el.scrollIntoView({ behavior: 'smooth' }); },
     openpo: (d) => ctx.navigate('purchase-orders', { orderId: +d.id, mode: 'view' }),
+    bizfile: (d) => ctx.navigate('business-files', { orderId: +d.id }),
     opendn: (d) => ctx.navigate('delivery-notes', { view: 'detail', dnId: +d.id }),
     opensi: (d) => ctx.navigate('supplier-invoices', { view: 'detail', invoiceId: +d.id }),
   });

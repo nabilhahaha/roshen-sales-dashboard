@@ -16,6 +16,8 @@ export const NAV = [
     { id: 'sku-master', icon: '🧾', label: 'SKU Master' },
     { id: 'purchase-orders', icon: '🛒', label: 'Purchase Orders' },
     { id: 'open-orders', icon: '⏳', label: 'Open Orders' },
+    // the permanent home of every purchase order's Business File
+    { id: 'business-files', icon: '📁', label: 'Business Files' },
     // reachable from inside the Purchase Order workflow, not the sidebar
     { id: 'pi-import', icon: '📥', label: 'PI Import', hidden: true },
     { id: 'validation', icon: '✅', label: 'PI Validation', hidden: true },

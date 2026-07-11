@@ -10,6 +10,7 @@ import * as skuMaster from './pages/sku-master/sku-master.page.js';
 import * as purchaseOrders from './pages/purchase-orders/purchase-orders.page.js';
 import * as orderHistory from './pages/order-history/order-history.page.js';
 import * as openOrders from './pages/open-orders/open-orders.page.js';
+import * as businessFiles from './pages/business-files/business-files.page.js';
 import * as piImport from './pages/pi-import/pi-import.page.js';
 import * as validation from './pages/validation/validation.page.js';
 import * as workflow from './pages/workflow/workflow.page.js';
@@ -29,6 +30,7 @@ const PAGES = {
   'purchase-orders': purchaseOrders,
   'order-history': orderHistory,
   'open-orders': openOrders,
+  'business-files': businessFiles,
   'import-order': importOrder,
   'po-revision': poRevision,
   'pi-import': piImport,
@@ -52,7 +54,10 @@ function navigate(section, params) {
   // Purchase Orders is the master document and the workflow's starting point.
   if (!isSection(section) && !PAGES[section]) section = 'purchase-orders';
   shell.setActive(EXTRA_ROUTES[section] || section);
-  try { history.replaceState(null, '', '#' + section); } catch (e) {}
+  // deep-linkable sub-path, e.g. #business-files/KS-393-2026 (pages may also
+  // refine the hash themselves once they resolve their document)
+  const sub = params && params.hashPath ? '/' + params.hashPath : '';
+  try { history.replaceState(null, '', '#' + section + sub); } catch (e) {}
 
   const view = document.createElement('div');
   view.className = 'erp-view';
@@ -89,8 +94,10 @@ function boot() {
       if (s2) { e.preventDefault(); s2.focus(); s2.select(); }
     }
   });
-  const initial = (location.hash || '').replace('#', '');
-  navigate(isSection(initial) ? initial : 'purchase-orders');
+  const raw = (location.hash || '').replace('#', '');
+  const [initial, ...rest] = raw.split('/');
+  navigate(isSection(initial) ? initial : 'purchase-orders',
+    rest.length ? { path: decodeURIComponent(rest.join('/')) } : undefined);
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

@@ -32,6 +32,7 @@ export async function render(root, ctx) {
     open: ({ id }) => ctx.navigate('purchase-orders', { orderId: +id, mode: 'view' }),
     xlsall: async () => { try { await exportOpenOrdersExcel(orders); toast('Open orders exported', 'ok'); } catch (e) { toast(e.message || String(e), 'err'); } },
     lines: ({ id }) => { const n = +id; OPEN_LINES.has(n) ? OPEN_LINES.delete(n) : OPEN_LINES.add(n); paint(); },
+    bizfile: ({ id }) => ctx.navigate('business-files', { orderId: +id }),
     xlslines: ({ id }) => exportLinesExcel(orders.find((o) => o.id === +id)),
     pdflines: ({ id }) => openLinesPrintDoc(orders.find((o) => o.id === +id), { pdf: true }),
     printlines: ({ id }) => openLinesPrintDoc(orders.find((o) => o.id === +id), { pdf: false }),
@@ -151,7 +152,9 @@ export async function render(root, ctx) {
         <td style="white-space:nowrap">${bizBadge(o.business_status)}</td>
         <td style="min-width:140px">${bar(o.pct)}</td>
         <td style="font-size:11px;color:var(--text-secondary)">${esc(o.last_activity || '—')}${o.next_eta ? '<br>ETA ' + esc(String(o.next_eta).slice(0, 16).replace('T', ' ')) : ''}</td>
-        <td><button class="sc-btn sm ghost" data-act="closepo" data-id="${o.id}" title="Close this purchase order">✖ Close</button></td></tr>${lines}`;
+        <td style="white-space:nowrap">
+          <button class="sc-btn sm ghost" data-act="bizfile" data-id="${o.id}" title="Open the Business File">📁 File</button>
+          <button class="sc-btn sm ghost" data-act="closepo" data-id="${o.id}" title="Close this purchase order">✖ Close</button></td></tr>${lines}`;
     }).join('')
       || '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);padding:22px">No open orders — everything is delivered or closed. Completed orders are in Purchase History. 🎉</td></tr>';
 
