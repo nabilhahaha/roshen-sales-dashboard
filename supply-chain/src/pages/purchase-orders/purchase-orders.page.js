@@ -18,6 +18,7 @@ import { printOrder, exportOrderExcel } from '../../utils/documents.js';
 import { ORDER_STATUS } from '../../models/order-status.js';
 import { canCloseManually, CLOSE_REASONS } from '../../models/business-status.js';
 import { renderOrdersList } from './orders-list.view.js';
+import { renderReceivedBatchesTab } from './received-batches.tab.js';
 import { listRevisions } from '../../services/purchase-orders/revision.service.js';
 import { renderDocumentChain } from '../../components/related/document-chain.js';
 import { renderDocumentShell, openDrawer, closeDrawer } from '../../components/document/document-shell.js';
@@ -254,6 +255,7 @@ function paintDocumentView() {
       { id: 'items', label: 'Items', icon: '📦', count: ED.lines.length, render: renderItemsTab },
       { id: 'delivery', label: 'Delivery', icon: '🚚', render: renderDeliveryTab },
       { id: 'invoices', label: 'Supplier Invoices', icon: '🧾', render: renderInvoicesTab },
+      { id: 'batches', label: 'Received Batches', icon: '🔖', render: (elx) => renderReceivedBatchesTab(elx, { orderId: ED.id, orderNumber: ED.header.order_number, supplier: ED.header.supplier, navigate: (s, p) => CTX.navigate(s, p) }) },
       { id: 'documents', label: 'Documents', icon: '📎', render: (el) => renderDocumentsTab(el, { docType: 'purchase_order', docId: ED.id, orderId: ED.id, actor: 'Development' }) },
       { id: 'timeline', label: 'Timeline', icon: '🧭', render: renderPoTimelineTab },
     ],
