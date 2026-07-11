@@ -475,3 +475,26 @@ button.is-busy,.sc-btn.is-busy{display:inline-flex;align-items:center;gap:7px;ju
 @media(max-width:760px){
   .bfp-head .sc-btn{flex:1 1 30%}
 }
+
+/* ---------- Business File — Summary tab ---------- */
+.sum-cards{display:flex;flex-direction:column;gap:10px}
+.sum-pi>.bf-head{cursor:pointer}
+.sum-bar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:10px 0}
+.sum-bar .sc-input{min-width:130px;flex:1 1 140px}
+.sum-datef{font-size:11.5px;color:var(--text-secondary);display:flex;align-items:center;gap:4px}
+.sum-table td{vertical-align:top}
+.sum-bad{color:#E03131;font-weight:700}
+.sum-noatt{font-size:11px;color:var(--text-muted)}
+.sum-att-empty{display:flex;align-items:center;gap:6px}
+.sum-att-h{background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);
+  font-size:11px;padding:3px 8px;cursor:pointer;white-space:nowrap}
+.sum-att-h:hover{background:var(--bg-card-hover)}
+.sum-att-list{display:none;margin-top:6px;border:1px solid var(--border);border-radius:8px;padding:6px;background:var(--bg-secondary);min-width:230px}
+.sum-att.open .sum-att-list{display:block}
+.sum-att-row{display:flex;align-items:center;gap:6px;padding:2px 0;flex-wrap:wrap}
+.sum-att-name{background:none;border:none;color:var(--text-primary);font-size:11.5px;cursor:pointer;padding:0;text-align:left}
+.sum-att-name:hover{text-decoration:underline}
+.sum-att-meta{font-size:10px;color:var(--text-muted);flex-basis:100%;padding-left:18px}
+.sum-att-manage{background:none;border:none;color:var(--info,#4dabf7);font-size:10.5px;cursor:pointer;padding:4px 0 0;text-align:left}
+.sum-manage-row>td{background:var(--bg-secondary)}
+@media(max-width:900px){.sum-bar .sc-input{flex:1 1 45%}}
