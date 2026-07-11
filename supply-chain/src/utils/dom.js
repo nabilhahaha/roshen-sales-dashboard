@@ -5,8 +5,24 @@ export const el = (id) => document.getElementById(id);
 export const qs = (sel, root = document) => root.querySelector(sel);
 export const qsa = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+// Mobile card lists: tables marked .sc-cardify collapse into stacked cards on
+// phones (CSS-only). Each td needs its column label — stamped here, centrally,
+// from the table's own thead, so no page repeats its headers.
+export function stampCardLabels(root) {
+  root.querySelectorAll('table.sc-cardify').forEach((t) => {
+    if (!t.tHead) return;
+    const labels = [...t.tHead.querySelectorAll('th')].map((h) => h.textContent.trim());
+    [...t.tBodies].forEach((tb) => [...tb.rows].forEach((tr) => {
+      if (tr.cells.length < 2) return; // full-width detail rows keep their layout
+      [...tr.cells].forEach((td, i) => { if (labels[i]) td.dataset.th = labels[i]; });
+    }));
+  });
+  return root;
+}
+
 export function mount(root, html) {
   root.innerHTML = html;
+  stampCardLabels(root);
   return root;
 }
 

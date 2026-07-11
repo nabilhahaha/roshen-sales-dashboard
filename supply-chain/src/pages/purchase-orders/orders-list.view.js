@@ -74,7 +74,7 @@ export async function renderOrdersList(root, ctx, variant = 'active') {
           <button class="sc-icon-btn" title="Excel" data-act="xls" data-id="${o.id}">⬇</button>
         </div></td></tr>`;
     }).join('');
-    body.innerHTML = tableWrap(`<table class="sc-table"><thead><tr>
+    body.innerHTML = tableWrap(`<table class="sc-table sc-cardify"><thead><tr>
       <th>Order #</th><th>Date</th><th>Supplier</th><th>Warehouse</th><th>Status</th>
       <th class="num">Items</th><th class="num">Cases</th><th class="num">Value (SAR)</th><th>PI</th><th>Actions</th>
     </tr></thead><tbody>${rows}</tbody></table>`);

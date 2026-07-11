@@ -84,7 +84,7 @@ async function masterList(root, ctx) {
           <select class="sc-select sm" data-el="status"><option value="">All statuses</option>
             ${statuses.map((s) => `<option ${state.status === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>
         </div>
-        ${tableWrap(`<table class="sc-table"><thead><tr>
+        ${tableWrap(`<table class="sc-table sc-cardify"><thead><tr>
           <th>PO Number</th><th>Supplier</th><th>Order Date</th>
           <th class="num">Ordered Qty</th><th class="num">Shipped Qty</th><th class="num">Delivered Qty</th><th class="num">Remaining Qty</th>
           <th>Status</th><th></th></tr></thead><tbody>

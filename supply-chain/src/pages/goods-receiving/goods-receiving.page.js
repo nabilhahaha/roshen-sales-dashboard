@@ -57,7 +57,7 @@ async function renderList(root, ctx) {
     <div class="sc-card-h"><h3>🏬 Warehouse Receiving</h3><span class="sc-badge none" style="margin-left:8px">${grs.length}</span>
       <div class="sc-spacer"></div><button class="sc-btn sm ghost" data-act="dn">Delivery Notes →</button></div>
     <div class="sc-card"><p style="font-size:12px;color:var(--text-secondary);margin:0 0 10px">Healthy items are accepted automatically — you only review exceptions.</p>
-      ${tableWrap(`<table class="sc-table"><thead><tr><th>Receipt #</th><th>Delivery Note</th><th>PI</th><th>Warehouse</th><th>Date</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`)}</div>`);
+      ${tableWrap(`<table class="sc-table sc-cardify"><thead><tr><th>Receipt #</th><th>Delivery Note</th><th>PI</th><th>Warehouse</th><th>Date</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`)}</div>`);
   delegate(root, {
     dn: () => ctx.navigate('delivery-notes'),
     open: ({ id }) => ctx.navigate('goods-receiving', { view: 'detail', grId: id }),

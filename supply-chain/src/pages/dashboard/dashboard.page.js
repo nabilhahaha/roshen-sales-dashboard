@@ -74,7 +74,7 @@ export async function render(root, ctx) {
     <div class="sc-card">
       <div class="sc-card-h"><h3>⏳ Open Orders</h3><div class="sc-spacer"></div>
         <button class="sc-btn sm ghost" data-act="openorders">Open Orders →</button></div>
-      ${open.length ? tableWrap(`<table class="sc-table"><thead><tr>
+      ${open.length ? tableWrap(`<table class="sc-table sc-cardify"><thead><tr>
           <th>PI Number</th><th>Supplier</th><th>Expected Delivery</th><th class="num">Remaining Qty</th><th>Status</th><th></th></tr></thead><tbody>
           ${open.slice(0, 8).map((o) => `<tr class="sc-row-link" data-act="openpo" data-id="${o.id}">
             <td class="mono"><b>${esc(o.order_number)}</b></td><td>${esc(o.supplier || '')}</td>

@@ -8,6 +8,7 @@ export function topbarHtml() {
   const t = getTheme();
   return `
     <header class="erp-topbar">
+      <button class="erp-iconbtn erp-burger" data-el="burger" title="Menu" aria-label="Open navigation">☰</button>
       <div class="erp-crumb"><span class="erp-crumb-co">Roshen / Relia</span> <span class="sep">/</span> <b data-el="title">Purchase Orders</b></div>
       <div class="erp-search"><span>🔎</span><input data-el="search" placeholder="Search SKUs, orders…" autocomplete="off"></div>
       <div class="erp-topbar-right">
@@ -24,6 +25,20 @@ export function topbarHtml() {
 }
 
 export function wireTopbar(root, { onSearch, onNotif, onSettings }) {
+  // mobile navigation: the burger slides the sidebar in; the scrim closes it
+  const burger = root.querySelector('[data-el="burger"]');
+  if (burger) burger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const erp = root.querySelector('.erp');
+    const on = erp.classList.toggle('nav-open');
+    let scrim = erp.querySelector('.erp-scrim');
+    if (on && !scrim) {
+      scrim = document.createElement('div');
+      scrim.className = 'erp-scrim';
+      scrim.addEventListener('click', () => erp.classList.remove('nav-open'));
+      erp.appendChild(scrim);
+    }
+  });
   const search = root.querySelector('[data-el="search"]');
   if (search) search.addEventListener('input', (e) => onSearch(e.target.value));
   const notif = root.querySelector('[data-el="notif"]');
