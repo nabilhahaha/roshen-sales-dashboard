@@ -4,11 +4,10 @@
 // the dispute register, the audit trail and the full lifecycle actions
 // (edit / cancel / replace / credit note / debit note / re-check). Pages talk
 // only to services.
-import { mount, delegate, wire, qsa } from '../../utils/dom.js';
-import { esc, money, qty, normRoshen } from '../../utils/format.js';
+import { mount, delegate, qsa } from '../../utils/dom.js';
+import { esc, money, qty } from '../../utils/format.js';
 import { loading, emptyState, tableWrap } from '../../components/table/table.js';
 import { statusBadge } from '../../components/table/badges.js';
-import { orderBadge } from '../../components/table/table.js';
 import { siBusinessStatus } from '../../models/business-status.js';
 import { renderDocumentChain } from '../../components/related/document-chain.js';
 import { exportSupplierInvoicesExcel } from '../../services/export/business-export.service.js';
@@ -17,7 +16,6 @@ import { renderDocumentsTab, renderTimelineTab, openBusinessFile } from '../../c
 import { modal } from '../../components/modal/modal.js';
 import { toast } from '../../components/notifications/toast.js';
 import { printSupplierInvoice } from '../../utils/documents.js';
-import { attachmentsPanel } from '../../components/attachments/attachments-panel.js';
 import {
   listInvoices, getInvoice, getInvoiceDocument, listInvoiceAudit,
   matchInvoiceLineLevel, editSupplierInvoice, cancelSupplierInvoice, createAdjustmentNote,

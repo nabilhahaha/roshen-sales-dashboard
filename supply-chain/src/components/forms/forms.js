@@ -51,7 +51,12 @@ export function createSkuCombo(mountEl, skus, onPick) {
     if (e.key === 'Enter') { e.preventDefault(); if (matches.length) { onPick(matches[0].item_code); search.value = ''; mountEl.classList.remove('open'); } }
     else if (e.key === 'Escape') mountEl.classList.remove('open');
   });
-  document.addEventListener('click', (e) => { if (!mountEl.contains(e.target)) mountEl.classList.remove('open'); });
+  const onDocClick = (e) => {
+    // self-detach once this combo instance leaves the DOM
+    if (!mountEl.isConnected) { document.removeEventListener('click', onDocClick); return; }
+    if (!mountEl.contains(e.target)) mountEl.classList.remove('open');
+  };
+  document.addEventListener('click', onDocClick);
 
   return { focus: () => search.focus() };
 }
