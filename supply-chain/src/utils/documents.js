@@ -108,6 +108,29 @@ export function exportErrorReport(failed, filename) {
   writeXlsx(aoa, 'Import_Errors_' + base + '.xlsx', 'Errors');
 }
 
+// SKU Master → Excel. Exports the rows currently shown on the page (already
+// filtered/searched by the caller). Columns mirror the on-screen table plus the
+// extra master-data fields, so it doubles as a re-import-ready catalogue sheet.
+export function exportSkuMasterExcel(skus, meta) {
+  const list = (skus || []).slice();
+  const weightG = (s) => (s.unit_weight_g == null ? '' : Number(s.unit_weight_g));
+  const shelf = (s) => (s.shelf_life_value != null && s.shelf_life_unit ? `${s.shelf_life_value} ${s.shelf_life_unit}` : '');
+  const header = ['Roshen ID', 'Item Code', 'Description', 'Unit Weight (g)', 'Units/Carton', 'Price/Case',
+    'Shelf Life', 'Min Rcv %', 'Status', 'Barcode', 'Brand', 'Category', 'Sub Category', 'Product Family', 'Variant/Flavor'];
+  const aoa = [['Roshen / Relia Supply Chain — SKU Master'], ['Exported', today()], ['Items', list.length]];
+  if (meta && meta.filter) aoa.push(['Filter', meta.filter]);
+  aoa.push([]);
+  aoa.push(header);
+  list.forEach((s) => aoa.push([
+    s.roshen_id || '', s.item_code || '', s.item_description || '', weightG(s),
+    s.units_per_carton == null ? '' : Number(s.units_per_carton),
+    s.price_case == null ? '' : Number(s.price_case),
+    shelf(s), s.min_remaining_shelf_life_pct == null ? '' : Number(s.min_remaining_shelf_life_pct),
+    s.status || '', s.barcode || '', s.brand || '', s.category || '', s.sub_category || '', s.product_family || '', s.variant_flavor || '',
+  ]));
+  writeXlsx(aoa, 'SKU_Master_' + today() + '.xlsx', 'SKU Master');
+}
+
 export function exportPiExcel(pi, orderNumber) {
   const its = (pi.proforma_invoice_items || []).slice().sort((a, b) => (a.line_no || 0) - (b.line_no || 0));
   const aoa = [['Proforma Invoice', pi.pi_number || ''], ['PI Date', pi.pi_date || ''], ['Supplier', pi.supplier || ''], ['Customer', pi.customer || ''], ['Currency', pi.currency || ''], ['Linked Order', orderNumber || ''], ['Status', pi.status], [],
