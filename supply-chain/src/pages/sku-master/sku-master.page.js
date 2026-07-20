@@ -14,6 +14,7 @@ import {
   addSkuAttachment, getSkuAttachment, removeSkuAttachment,
 } from '../../services/sku/sku.service.js';
 import { startShelfLifeImport } from './shelf-life-import.flow.js';
+import { exportSkuMasterExcel } from '../../utils/documents.js';
 
 const ACTOR = 'Development';
 let CACHE = [];
@@ -43,6 +44,7 @@ async function renderList(root, ctx) {
         <select class="sc-select" style="max-width:130px" data-el="status">
           <option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
         <input class="sc-input" style="max-width:230px;margin-left:8px" data-el="search" placeholder="🔎 Search code / Roshen / description…">
+        <button class="sc-btn ghost" style="margin-left:8px" data-act="export">📊 Export Excel</button>
         <button class="sc-btn ghost" style="margin-left:8px" data-act="import">📥 Shelf Life Import</button>
         <button class="sc-btn primary" style="margin-left:8px" data-act="add">＋ Add SKU</button>
       </div>
@@ -78,17 +80,28 @@ async function renderList(root, ctx) {
       <th class="num">Price / Case</th><th>Shelf Life</th><th class="num">Min Rcv %</th><th>Status</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table>`);
   };
-  const applyFilter = () => {
+  const computeList = () => {
     const q = (search.value || '').trim().toLowerCase();
     const st = statusSel.value;
     let list = CACHE;
     if (st !== 'all') list = list.filter((s) => (s.status || 'inactive') === st);
     if (q) list = list.filter((s) => (s.item_code || '').toLowerCase().includes(q) || (s.item_description || '').toLowerCase().includes(q) || String(s.roshen_id || '').includes(q));
-    paint(list);
+    return list;
   };
+  const filterLabel = () => {
+    const st = statusSel.value, q = (search.value || '').trim();
+    return [st !== 'all' ? 'Status: ' + st : null, q ? 'Search: ' + q : null].filter(Boolean).join(' · ') || 'All SKUs';
+  };
+  const applyFilter = () => paint(computeList());
   const reload = async () => { CACHE = await listSkus({ activeOnly: false }); root.querySelector('[data-el="count"]').textContent = CACHE.length + ' items'; applyFilter(); };
 
   delegate(root, {
+    export: () => {
+      const list = computeList();
+      if (!list.length) return toast('No SKUs to export', 'info');
+      try { exportSkuMasterExcel(list, { filter: filterLabel() }); toast(`Exported ${list.length} SKU(s) to Excel`, 'ok'); }
+      catch (e) { toast('Export failed: ' + (e.message || e), 'err'); }
+    },
     import: () => ctx.navigate('sku-master', { view: 'import' }),
     add: () => openEditor(null, reload),
     edit: ({ id }) => openEditor(CACHE.find((s) => String(s.id) === String(id)), reload),
