@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Roshen KSA — Sales Dashboard</title>
+  <meta name="description" content="Client-side sales analytics dashboard. Upload your daily Excel file to refresh all KPIs, charts and tables — no backend required." />
+
+  <!-- Apply saved theme before paint to avoid a flash of the wrong theme -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('roshen_dash_theme');
+        if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
+    })();
+  </script>
+
+  <!-- ===== Base design system: Tabler (Bootstrap 5 theme, MIT) — vendored ===== -->
+  <!-- All third-party libraries are bundled under assets/vendor so the dashboard
+       runs fully offline (open index.html directly, no internet required). -->
+  <link rel="stylesheet" href="assets/vendor/css/tabler.min.css" />
+  <link rel="stylesheet" href="assets/vendor/css/fontawesome.min.css" />
+  <link rel="stylesheet" href="assets/vendor/css/dataTables.min.css" />
+  <link rel="stylesheet" href="assets/vendor/css/buttons.dataTables.min.css" />
+  <link rel="stylesheet" href="assets/vendor/css/responsive.dataTables.min.css" />
+  <!-- App styles -->
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+
+<body>
+  <!-- ======================= GLOBAL LOADER ======================= -->
+  <div id="global-loader" class="global-loader" role="status" aria-live="polite">
+    <div class="loader-card">
+      <div class="loader-spinner"></div>
+      <div class="loader-label" id="loader-label">Loading…</div>
+    </div>
+  </div>
+
+  <!-- ======================= UPLOAD OVERLAY ======================= -->
+  <div id="upload-overlay" class="upload-overlay">
+    <button class="upload-close" id="btn-close-upload" title="Close" aria-label="Close">
+      <i class="fa-solid fa-xmark"></i>
+    </button>
+    <div class="upload-card">
+      <div class="upload-brand">
+        <div class="brand-logo"><i class="fa-solid fa-chart-pie"></i></div>
+        <div>
+          <h1 class="upload-title"><span id="brand-name">Roshen KSA</span></h1>
+          <p class="upload-subtitle" id="brand-sub">Sales Performance Dashboard</p>
+        </div>
+      </div>
+
+      <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload Excel file">
+        <input type="file" id="file-input" accept=".xlsx,.xlsm,.xls,.csv" hidden />
+        <div class="dropzone-inner">
+          <div class="dropzone-icon"><i class="fa-solid fa-cloud-arrow-up"></i></div>
+          <h3>Drag &amp; drop today's Excel file</h3>
+          <p class="text-muted">or</p>
+          <button type="button" class="btn btn-primary btn-lg" data-browse>
+            <i class="fa-solid fa-folder-open me-2"></i>Browse files
+          </button>
+          <p class="dropzone-hint">Accepts .xlsx, .xls, .csv — everything is processed locally in your browser.</p>
+        </div>
+      </div>
+
+      <div id="upload-status" class="upload-status"></div>
+
+      <div class="upload-actions">
+        <button type="button" class="btn btn-outline-secondary" id="btn-sample">
+          <i class="fa-solid fa-flask me-2"></i>Load sample data
+        </button>
+        <span class="upload-note"><i class="fa-solid fa-lock"></i> No data leaves your device.</span>
+      </div>
+    </div>
+    <p class="upload-footer">Built with Bootstrap&nbsp;5 · SheetJS · ApexCharts · DataTables — © <span data-year></span> <span class="brand-inline">Roshen KSA</span></p>
+  </div>
+
+  <!-- ======================= APP SHELL ======================= -->
+  <div class="app-shell">
+    <!-- ---- Sidebar ---- -->
+    <aside class="app-sidebar" id="app-sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-logo sm"><i class="fa-solid fa-chart-pie"></i></div>
+        <div class="brand-text">
+          <strong id="brand-name-side">Roshen KSA</strong>
+          <span>Sales Analytics</span>
+        </div>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-link active" data-section="section-overview"><i class="fa-solid fa-gauge-high"></i><span>Overview</span></a>
+        <a href="#" class="nav-link" data-section="section-trends"><i class="fa-solid fa-chart-line"></i><span>Sales Trends</span></a>
+        <a href="#" class="nav-link" data-section="section-breakdown"><i class="fa-solid fa-chart-column"></i><span>Breakdowns</span></a>
+        <a href="#" class="nav-link" data-section="section-customers"><i class="fa-solid fa-people-group"></i><span>Customers</span></a>
+        <a href="#" class="nav-link" data-section="section-products"><i class="fa-solid fa-boxes-stacked"></i><span>Products</span></a>
+        <a href="#" class="nav-link" data-section="section-tables"><i class="fa-solid fa-table"></i><span>Data Tables</span></a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="mini-meta">
+          <div><i class="fa-solid fa-file-excel"></i> <span id="dataset-file">—</span></div>
+          <div><i class="fa-solid fa-calendar"></i> <span id="dataset-range">—</span></div>
+          <div><i class="fa-solid fa-list-ol"></i> <span id="dataset-rows">0</span> rows</div>
+        </div>
+      </div>
+    </aside>
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+    <!-- ---- Main ---- -->
+    <div class="app-main">
+      <!-- Topbar -->
+      <header class="app-topbar">
+        <button class="icon-btn d-lg-none" id="btn-sidebar" aria-label="Menu"><i class="fa-solid fa-bars"></i></button>
+        <div class="topbar-title">
+          <h2 id="brand-heading">Sales Performance</h2>
+          <span class="topbar-context" id="active-filter-summary">All data</span>
+        </div>
+        <div class="topbar-actions">
+          <span class="pill"><i class="fa-solid fa-database"></i> <span id="row-count-badge">0 rows</span></span>
+          <span class="pill subtle" title="Last render time"><i class="fa-solid fa-bolt"></i> <span id="render-time">—</span></span>
+          <button class="icon-btn" id="btn-reupload" title="Upload a new file"><i class="fa-solid fa-cloud-arrow-up"></i></button>
+          <button class="icon-btn" id="btn-print" title="Print dashboard"><i class="fa-solid fa-print"></i></button>
+          <button class="icon-btn" id="btn-export-pdf" title="Export dashboard to PDF"><i class="fa-solid fa-file-pdf"></i></button>
+          <button class="icon-btn" id="btn-theme" title="Toggle dark / light"><i id="theme-icon" class="fa-solid fa-moon"></i></button>
+        </div>
+      </header>
+
+      <!-- Filter bar -->
+      <section class="filter-panel no-print">
+        <div class="filter-panel-head">
+          <span><i class="fa-solid fa-filter"></i> Filters</span>
+          <button class="btn btn-sm btn-ghost" id="btn-reset-filters"><i class="fa-solid fa-rotate-left me-1"></i>Reset</button>
+        </div>
+        <div class="filter-bar" id="filter-bar"><!-- filters injected here --></div>
+      </section>
+
+      <!-- Capture root (what gets exported to PDF) -->
+      <main class="app-content" id="capture-root">
+
+        <!-- ===== OVERVIEW ===== -->
+        <section class="dash-section" id="section-overview">
+          <div class="section-head"><h3><i class="fa-solid fa-gauge-high"></i> Overview</h3></div>
+          <div class="kpi-grid" id="kpi-row"><!-- KPI cards injected --></div>
+
+          <div class="row g-3 mt-1">
+            <div class="col-12 col-xl-8">
+              <div class="panel"><div class="panel-head"><h4>Sales Trend</h4><span class="panel-sub">Net sales by month</span></div>
+                <div id="chart-salesTrend" class="chart"></div></div>
+            </div>
+            <div class="col-12 col-xl-4">
+              <div class="panel"><div class="panel-head"><h4>Customer Status</h4><span class="panel-sub">Active vs inactive</span></div>
+                <div id="chart-customerStatus" class="chart"></div></div>
+            </div>
+          </div>
+          <div class="row g-3">
+            <div class="col-12 col-lg-6">
+              <div class="panel"><div class="panel-head"><h4>Target vs Achievement</h4><span class="panel-sub">Monthly actual vs target</span></div>
+                <div id="chart-targetVsAchievement" class="chart"></div></div>
+            </div>
+            <div class="col-12 col-lg-6">
+              <div class="panel"><div class="panel-head"><h4>Pareto Analysis</h4><span class="panel-sub">Top contributors &amp; cumulative %</span></div>
+                <div id="chart-pareto" class="chart"></div></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== TRENDS ===== -->
+        <section class="dash-section" id="section-trends">
+          <div class="section-head"><h3><i class="fa-solid fa-chart-line"></i> Sales Trends</h3></div>
+          <div class="row g-3">
+            <div class="col-12 col-lg-6">
+              <div class="panel"><div class="panel-head"><h4>Monthly Sales</h4></div><div id="chart-monthlySales" class="chart"></div></div>
+            </div>
+            <div class="col-12 col-lg-6">
+              <div class="panel"><div class="panel-head"><h4>Daily Sales</h4></div><div id="chart-dailySales" class="chart"></div></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== BREAKDOWNS ===== -->
+        <section class="dash-section" id="section-breakdown">
+          <div class="section-head"><h3><i class="fa-solid fa-chart-column"></i> Breakdowns</h3></div>
+          <div class="row g-3">
+            <div class="col-12 col-lg-6"><div class="panel"><div class="panel-head"><h4>Sales by Region</h4></div><div id="chart-salesByRegion" class="chart"></div></div></div>
+            <div class="col-12 col-lg-6"><div class="panel"><div class="panel-head"><h4>Sales by City</h4></div><div id="chart-salesByCity" class="chart"></div></div></div>
+            <div class="col-12 col-lg-6"><div class="panel"><div class="panel-head"><h4>Sales by Supervisor</h4></div><div id="chart-salesBySupervisor" class="chart"></div></div></div>
+            <div class="col-12 col-lg-6"><div class="panel"><div class="panel-head"><h4>Sales by Salesman</h4></div><div id="chart-salesBySalesman" class="chart"></div></div></div>
+            <div class="col-12 col-lg-6"><div class="panel"><div class="panel-head"><h4>Sales by Channel</h4></div><div id="chart-salesByChannel" class="chart"></div></div></div>
+            <div class="col-12 col-lg-6"><div class="panel"><div class="panel-head"><h4>Sales by Category</h4></div><div id="chart-salesByCategory" class="chart"></div></div></div>
+          </div>
+        </section>
+
+        <!-- ===== CUSTOMERS ===== -->
+        <section class="dash-section" id="section-customers">
+          <div class="section-head"><h3><i class="fa-solid fa-people-group"></i> Customers</h3></div>
+          <div class="row g-3">
+            <div class="col-12 col-xl-7"><div class="panel"><div class="panel-head"><h4>Top 20 Customers</h4></div><div id="chart-topCustomers" class="chart"></div></div></div>
+            <div class="col-12 col-xl-5"><div class="panel"><div class="panel-head"><h4>Product Mix</h4><span class="panel-sub">By sub-category</span></div><div id="chart-productMix" class="chart"></div></div></div>
+          </div>
+        </section>
+
+        <!-- ===== PRODUCTS (placeholder anchor uses breakdown charts too) ===== -->
+        <section class="dash-section" id="section-products">
+          <div class="section-head"><h3><i class="fa-solid fa-boxes-stacked"></i> Products &amp; Salesmen</h3></div>
+          <div class="row g-3">
+            <div class="col-12">
+              <div class="panel"><div class="panel-head"><h4>Product Sales</h4><span class="panel-sub">Top products by net sales</span></div>
+                <div class="table-wrap"><table id="tbl-productSales" class="display nowrap w-100"></table></div></div>
+            </div>
+            <div class="col-12">
+              <div class="panel"><div class="panel-head"><h4>Salesman Performance</h4></div>
+                <div class="table-wrap"><table id="tbl-salesmanPerformance" class="display nowrap w-100"></table></div></div>
+            </div>
+            <div class="col-12 col-xl-6">
+              <div class="panel"><div class="panel-head"><h4>Route Performance</h4><span class="panel-sub">Territory (branch) roll-up</span></div>
+                <div class="table-wrap"><table id="tbl-routePerformance" class="display nowrap w-100"></table></div></div>
+            </div>
+            <div class="col-12 col-xl-6">
+              <div class="panel"><div class="panel-head"><h4>Top Customers</h4></div>
+                <div class="table-wrap"><table id="tbl-topCustomers" class="display nowrap w-100"></table></div></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== TABLES ===== -->
+        <section class="dash-section" id="section-tables">
+          <div class="section-head"><h3><i class="fa-solid fa-table"></i> Data Tables</h3></div>
+          <div class="row g-3">
+            <div class="col-12">
+              <div class="panel"><div class="panel-head"><h4>Customer List</h4><span class="panel-sub">All customers in view</span></div>
+                <div class="table-wrap"><table id="tbl-customerList" class="display nowrap w-100"></table></div></div>
+            </div>
+            <div class="col-12">
+              <div class="panel"><div class="panel-head"><h4>Inactive Customers</h4><span class="panel-sub">No purchase within the active window</span></div>
+                <div class="table-wrap"><table id="tbl-inactiveCustomers" class="display nowrap w-100"></table></div></div>
+            </div>
+          </div>
+        </section>
+
+        <footer class="app-footer">
+          <span>© <span data-year></span> <span id="brand-name-foot">Roshen KSA</span> — Sales Dashboard</span>
+          <span class="text-muted">Client-side · Bootstrap 5 · SheetJS · ApexCharts · DataTables</span>
+        </footer>
+      </main>
+    </div>
+  </div>
+
+  <!-- ======================= LIBRARIES (vendored, offline) ======================= -->
+  <script src="assets/vendor/js/bootstrap.bundle.min.js"></script>
+  <script src="assets/vendor/js/xlsx.full.min.js"></script>
+  <script src="assets/vendor/js/apexcharts.min.js"></script>
+  <script src="assets/vendor/js/jquery-3.7.1.min.js"></script>
+  <script src="assets/vendor/js/dataTables.min.js"></script>
+  <script src="assets/vendor/js/dataTables.buttons.min.js"></script>
+  <script src="assets/vendor/js/jszip.min.js"></script>
+  <script src="assets/vendor/js/pdfmake.min.js"></script>
+  <script src="assets/vendor/js/vfs_fonts.js"></script>
+  <script src="assets/vendor/js/buttons.html5.min.js"></script>
+  <script src="assets/vendor/js/buttons.print.min.js"></script>
+  <script src="assets/vendor/js/dataTables.responsive.min.js"></script>
+  <script src="assets/vendor/js/html2canvas.min.js"></script>
+  <script src="assets/vendor/js/jspdf.umd.min.js"></script>
+
+  <!-- ======================= APP MODULES ======================= -->
+  <script src="js/config.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/fastParser.js"></script>
+  <script src="js/dataStore.js"></script>
+  <script src="js/aggregations.js"></script>
+  <script src="js/kpis.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/tables.js"></script>
+  <script src="js/filters.js"></script>
+  <script src="js/upload.js"></script>
+  <script src="js/theme.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
